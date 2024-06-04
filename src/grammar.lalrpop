@@ -1,0 +1,73 @@
+use crate::ast::{UnaryOperator, UntypedExpr, Literal, BinaryOperator, AnnotatedIdent, TopLevelDeclaration, TypeDeclaration};
+grammar;
+
+pub File: Vec<TopLevelDeclaration> = Semicolon<TopLevelDeclaration> => <>;
+
+
+TopLevelDeclaration: TopLevelDeclaration = {
+	TypeDeclaration => TopLevelDeclaration::Type(<>),
+	<b: TopLevelBinding> => b,
+}
+
+TypeDeclaration: TypeDeclaration = {
+	"type" <i: Ident> "=" "{" <f: Comma<AnnotatedIdent>> "}" => TypeDeclaration::Struct(i,f),
+	"type" <i: Ident> "=" "[" <v: Comma<Ident>> "]" => TypeDeclaration::Enum(i, v),
+	"type" <i: Ident> "=" <t: Ident> => TypeDeclaration::Alias(i, t),
+}
+
+TopLevelBinding: TopLevelDeclaration = "let" <i: Ident> "=" <e: Expr> => TopLevelDeclaration::Binding {lhs: i, rhs: e};
+
+AnnotatedIdent: AnnotatedIdent = <i: Ident> ":" <t: Ident> => AnnotatedIdent {name: i, type_name: t};
+
+Block: Vec<UntypedExpr> = Semicolon<Expr> => <>;
+Expr: UntypedExpr = {
+	#[precedence(level="9")]
+	"let" <i: Ident> "="  <e: Expr> => UntypedExpr::Binding {lhs: i, rhs: Box::new(e)},
+	#[precedence(level="0")]
+	Literal => UntypedExpr::Literal(<>),
+	#[precedence(level="2")] #[assoc(side="left")]
+	<l: Expr> "+" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Add, rhs: Box::new(r)},
+	<l: Expr> "-" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Subtract, rhs: Box::new(r)},
+	#[precedence(level="3")] #[assoc(side="left")]
+	<l: Expr> "*" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Multiply, rhs: Box::new(r)},
+	<l: Expr> "/" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Divide, rhs: Box::new(r)},
+	#[precedence(level="5")]
+	<i: Ident> <a: FunctionArgs> => UntypedExpr::FunctionCall(i, a),
+	#[precedence(level="1")] #[assoc(side="left")]
+	<i: Ident> => UntypedExpr::Ident(i),
+	<l: Expr> ">" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Gt, rhs: Box::new(r)},
+	<l: Expr> "<" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Lt, rhs: Box::new(r)},
+	<l: Expr> ">=" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Gte, rhs: Box::new(r)},
+	<l: Expr> "<=" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Lte, rhs: Box::new(r)},
+	"if" <c: Expr> "{" <t: Block> "}" "else" "{" <e: Block> "}" => UntypedExpr::IfElse { condition: Box::new(c), then: t, r#else: e},
+	#[precedence(level="4")]
+	"@" <e: Expr> => UntypedExpr::UnaryOp {op: UnaryOperator::Await, target: Box::new(e)},
+
+}
+Annotation: String = ":" <i: Ident> => i; 
+FunctionArgs: Vec<UntypedExpr> = "(" <a: Comma<Expr>> ")" => a;
+Ident: String = r"[a-zA-Z_]+" => <>.to_owned();
+Literal: Literal = {
+	r"[0-9]+" => Literal::Int(<>.parse::<i32>().unwrap()),
+	r#"".+""# => Literal::String(<>.to_owned()),
+	"fn(" <a: Comma<AnnotatedIdent>> ")" <r: Annotation?> "{"<b: Block>"}" => Literal::Function {args: a, body: b,ret_type: r}
+}
+
+Comma<T>: Vec<T> = { // (1)
+    <mut v:(<T> ",")*> <e:T?> => match e { // (2)
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};
+Semicolon<T>: Vec<T> = { // (1)
+    <mut v:(<T> ";")*> <e:T?> => match e { // (2)
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};

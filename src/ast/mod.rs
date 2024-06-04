@@ -1,8 +1,3 @@
-use logos::Logos;
-
-use self::lexer::Token;
-
-mod lexer;
 pub mod parser;
 
 #[derive(Debug)]
@@ -18,9 +13,9 @@ pub enum TopLevelDeclaration {
 
 #[derive(Debug)]
 pub enum TypeDeclaration {
-    Struct(Vec<AnnotatedIdent>),
-    Enum(Vec<String>),
-    Alias(TypeName),
+    Struct(TypeName, Vec<AnnotatedIdent>),
+    Enum(TypeName, Vec<String>),
+    Alias(TypeName, TypeName),
 }
 
 #[derive(Debug)]
@@ -37,6 +32,15 @@ pub enum UntypedExpr {
         lhs: String,
         rhs: Box<UntypedExpr>,
     },
+    IfElse {
+        condition: Box<UntypedExpr>,
+        then: Vec<UntypedExpr>,
+        r#else: Vec<UntypedExpr>,
+    },
+    UnaryOp {
+        op: UnaryOperator,
+        target: Box<UntypedExpr>,
+    },
 }
 #[derive(Debug)]
 pub enum BinaryOperator {
@@ -46,6 +50,10 @@ pub enum BinaryOperator {
     Divide,
     Power,
     Semicolon,
+    Gt,
+    Lt,
+    Gte,
+    Lte,
 }
 #[derive(Debug)]
 pub enum UnaryOperator {
@@ -62,9 +70,10 @@ pub struct AnnotatedIdent {
 #[derive(Debug)]
 pub enum Literal {
     Int(i32),
+    String(String),
     Function {
         args: Vec<AnnotatedIdent>,
-        body: Box<UntypedExpr>,
+        body: Vec<UntypedExpr>,
         ret_type: Option<TypeName>,
     },
 }
