@@ -11,7 +11,11 @@ use super::{File, TopLevelDeclaration};
 //     UnexpectedEOF(std::ops::Range<usize>, Vec<Token>),
 // }
 //
-lalrpop_mod!(grammar);
+lalrpop_mod!(
+    #[allow(unused)]
+    #[allow(clippy::all)]
+    grammar
+);
 
 pub fn parse(file: &str) -> Result<Vec<TopLevelDeclaration>, ()> {
     Ok(grammar::FileParser::new().parse(file).unwrap())

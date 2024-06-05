@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+clap = { version = "4.5.4", features = ["derive"] }
 cranelift = "0.108.1"
 lalrpop-util = { version = "0.20.2", features = ["lexer"] }
 
