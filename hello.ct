@@ -1,4 +1,5 @@
-extern println: fn(str): unit;
+extern println: fn([int ; 13]): unit;
+let x = 5;
 let main = fn() {
 	println("hello world")
 }

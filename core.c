@@ -7,7 +7,7 @@ extern void printnum(int64_t);
 //
 
 void printnum(int64_t n) {
-	printf("%d", n);
+	printf("%d\n", n);
 }
 // void *ptr(int64_t v) {
 // 	int64_t *n = malloc(8);

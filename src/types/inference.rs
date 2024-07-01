@@ -9,7 +9,7 @@ pub enum TypeError {
     UnknownType(String),
     UndefinedValue(String),
     WrongNumberArgs(usize, usize, String),
-    IncorrectArgs(Vec<crate::types::AnnotatedIdent>, Vec<TypedExpr>, String),
+    IncorrectArgs(Vec<Type>, Vec<TypedExpr>, String),
     NonFunctionCall(String, Type),
     IncorrectType(Type, Type),
     UnmatchedTypes(Type, Type),
@@ -20,7 +20,6 @@ pub fn type_file(ast: File) -> Result<TypedFile, TypeError> {
     types.insert("int".into(), Type::Int);
     types.insert("bool".into(), Type::Bool);
     types.insert("unit".into(), Type::Float);
-    types.insert("str".into(), Type::Array(Box::new(Type::Int)));
     let mut scope: HashMap<String, Type> = HashMap::new();
     let mut declarations = Vec::new();
     for declaration in ast.declarations {
@@ -35,7 +34,12 @@ pub fn type_file(ast: File) -> Result<TypedFile, TypeError> {
                 declarations.push(super::TypedTopLevelDeclaration::Binding { lhs, rhs: expr.0 })
             }
             TopLevelDeclaration::Extern(annotated_ident) => {
-                declarations.push(TypedTopLevelDeclaration::Extern())
+                let ty = type_from_name(annotated_ident.type_name, &types)?;
+                scope.insert(annotated_ident.name.clone(), ty.clone());
+                declarations.push(TypedTopLevelDeclaration::Extern(super::AnnotatedIdent {
+                    name: annotated_ident.name,
+                    r#type: ty,
+                }))
             }
         }
     }
@@ -131,7 +135,7 @@ fn type_expr(
                             args.len(),
                             name.clone(),
                         ))
-                        .map(|supplied| supplied == arg.r#type)
+                        .map(|supplied| supplied == *arg)
                         .unwrap_or(false)
                 }) {
                     Err(TypeError::IncorrectArgs(
@@ -140,10 +144,10 @@ fn type_expr(
                         name.clone(),
                     ))
                 } else {
-                    let mut scope = scope.clone();
-                    for arg in func_args {
-                        scope.insert(arg.name.clone(), arg.r#type.clone());
-                    }
+                    // let mut scope = scope.clone();
+                    // for arg in func_args {
+                    //     scope.insert(arg.name.clone(), arg.r#type.clone());
+                    // }
                     Ok((
                         TypedExpr::FunctionCall(*ret.clone(), name.clone(), args),
                         scope.clone(),
@@ -338,20 +342,15 @@ fn get_literal_type(
 ) -> Result<Type, TypeError> {
     match literal {
         crate::ast::Literal::Int(_) => Ok(Type::Int),
-        crate::ast::Literal::String(_) => Ok(Type::Array(Box::new(Type::Int))),
+        crate::ast::Literal::String(val) => Ok(Type::Array(Box::new(Type::Int), val.len() as i64)),
         crate::ast::Literal::Function {
             args,
             body,
             ret_type,
         } => Ok(Type::Function(
             args.iter()
-                .map(|annotation| {
-                    Ok(crate::types::AnnotatedIdent {
-                        name: annotation.name.clone(),
-                        r#type: type_from_name(annotation.type_name.clone(), types)?,
-                    })
-                })
-                .collect::<Result<Vec<crate::types::AnnotatedIdent>, TypeError>>()?,
+                .map(|annotation| Ok(type_from_name(annotation.type_name.clone(), types)?))
+                .collect::<Result<Vec<Type>, TypeError>>()?,
             Box::new(
                 ret_type
                     .as_ref()
@@ -380,16 +379,19 @@ fn type_from_name(type_name: TypeName, types: &HashMap<String, Type>) -> Result<
             .get(&name)
             .ok_or(TypeError::UnknownType(name))
             .cloned(),
-        TypeName::Array(name) => Ok(Type::Array(Box::new(type_from_name(*name, types)?))),
+        TypeName::Array(name, size) => {
+            Ok(Type::Array(Box::new(type_from_name(*name, types)?), size))
+        }
         TypeName::Function(args, ret) => Ok(Type::Function(
             args.iter()
                 .map(|annotation| {
-                    Ok(crate::types::AnnotatedIdent {
-                        name: annotation.name.clone(),
-                        r#type: type_from_name(annotation.type_name.clone(), types)?,
-                    })
+                    Ok(type_from_name(annotation.clone(), types)?)
+                    // Ok(crate::types::AnnotatedIdent {
+                    //     name: annotation.name.clone(),
+                    //     r#type: type_from_name(annotation.type_name.clone(), types)?,
+                    // })
                 })
-                .collect::<Result<Vec<crate::types::AnnotatedIdent>, TypeError>>()?,
+                .collect::<Result<Vec<Type>, TypeError>>()?,
             Box::new(type_from_name(*ret, types)?),
         )),
     }

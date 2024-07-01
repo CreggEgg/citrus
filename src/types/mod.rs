@@ -81,7 +81,7 @@ pub enum Type {
     Bool,
     Unit,
     Enum(Vec<String>),
-    Array(Box<Type>),
+    Array(Box<Type>, i64),
     Function(Vec<Type>, Box<Type>),
     Struct(HashMap<String, Type>),
 }

@@ -18,7 +18,7 @@ TypeDeclaration: TypeDeclaration = {
 }
 
 Type: TypeName = {
-	"[" <t: Type> "]" => TypeName::Array(Box::new(<>)),
+	"[" <t: Type> ";" <s: r#"[0-9]+"#> "]" => TypeName::Array(Box::new(t), s.parse::<i64>().unwrap()),
 	"fn(" <a: Comma<Type>> ")" <r: Annotation?> => TypeName::Function(a, Box::new(r.unwrap_or(TypeName::Named("unit".into())))),
 	<i: Ident> => TypeName::Named(i)
 }

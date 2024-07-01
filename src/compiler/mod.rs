@@ -9,7 +9,7 @@ use cranelift::{
     frontend::{FunctionBuilder, FunctionBuilderContext},
     prelude::*,
 };
-use cranelift_module::{Linkage, Module};
+use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use target_lexicon::Triple;
 
@@ -22,14 +22,55 @@ use crate::{
 pub enum CompileError {
     InvalidGlobal(TypedExpr),
     InvalidExternalType(Type),
+    ExpectedValue(CitrusValue),
+    ModuleError(cranelift_module::ModuleError),
 }
 
-struct CitrusValue {
-    cranelift_value: Value,
-    r#type: crate::types::Type,
-    storage_location: StorageLocation,
+#[derive(Clone, Debug)]
+enum CitrusValue {
+    Value {
+        cranelift_value: Value,
+        r#type: crate::types::Type,
+        storage_location: StorageLocation,
+    },
+    Global {
+        data_id: DataId,
+        r#type: crate::types::Type,
+    },
+    Function {
+        function: FuncId,
+        r#type: crate::types::Type,
+    },
 }
 
+impl CitrusValue {
+    fn value(&self) -> Result<&Value, CompileError> {
+        if let CitrusValue::Value {
+            cranelift_value,
+            r#type: _,
+            storage_location: _,
+        } = self
+        {
+            Ok(cranelift_value)
+        } else {
+            Err(CompileError::ExpectedValue(self.clone()))
+        }
+    }
+
+    fn r#type(&self) -> &Type {
+        match self {
+            CitrusValue::Value {
+                cranelift_value,
+                r#type,
+                storage_location,
+            } => r#type,
+            CitrusValue::Global { data_id, r#type } => r#type,
+            CitrusValue::Function { function, r#type } => r#type,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 enum StorageLocation {
     Stack,
     Heap,
@@ -89,11 +130,35 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
         .declare_function("malloc", Linkage::Import, &signature)
         .unwrap();
 
+    signature.params.push(AbiParam::new(I64));
+    let freefid = obj_module
+        .declare_function("free", Linkage::Import, &signature)
+        .unwrap();
+
     //end c stuff
     //
     //
-    // let zero = function_builder.ins().iconst(I64, i64::from(0));
+    let zero = main_function_builder.ins().iconst(I64, i64::from(0));
+
+    let eight = main_function_builder.ins().iconst(I64, i64::from(8));
+    let val = main_function_builder.ins().iconst(I64, i64::from(110));
+
+    let malloc = obj_module.declare_func_in_func(mallocfid, main_function_builder.func);
+    let free = obj_module.declare_func_in_func(mallocfid, main_function_builder.func);
+
+    // main_function_builder
+    //     .ins()
+    //     .store(MemFlags::new(), val, recv, 0);
+    // let num = main_function_builder
+    //     .ins()
+    //     .load(I64, MemFlags::new(), recv, 0);
+
+    let printnum = obj_module.declare_func_in_func(printfid, main_function_builder.func);
+    // main_function_builder.ins().call(printnum, &[zero]);
+
+    let mut scope = HashMap::new();
     let mut functions = Vec::new();
+
     for declaration in ast {
         match declaration {
             TypedTopLevelDeclaration::Binding { lhs, rhs } => match rhs {
@@ -109,6 +174,41 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
                 }
                 expr => {
                     let val = compile_global(expr, &mut main_function_builder)?;
+                    let size = main_function_builder
+                        .ins()
+                        .iconst(I64, get_size_bytes(val.r#type()));
+                    let ret = main_function_builder.ins().call(malloc, &[size]);
+                    let ptr = main_function_builder.inst_results(ret)[0];
+                    main_function_builder
+                        .ins()
+                        .store(MemFlags::new(), *val.value()?, ptr, 0);
+                    main_function_builder.ins().call(printnum, &[ptr]);
+                    let global = obj_module
+                        .declare_data(&lhs, Linkage::Local, true, false)
+                        .map_err(|er| CompileError::ModuleError(er))?;
+                    let mut data = DataDescription::new();
+                    data.define_zeroinit(8);
+                    let _ = obj_module
+                        .define_data(global, &data)
+                        .map_err(|er| CompileError::ModuleError(er))?;
+                    let global_value_ref =
+                        obj_module.declare_data_in_func(global, main_function_builder.func);
+                    let global_ptr = main_function_builder
+                        .ins()
+                        .global_value(I64, global_value_ref);
+                    main_function_builder.ins().call(printnum, &[global_ptr]);
+                    main_function_builder
+                        .ins()
+                        .store(MemFlags::new(), ptr, global_ptr, 0);
+
+                    scope.insert(
+                        lhs,
+                        CitrusValue::Global {
+                            data_id: global,
+                            r#type: val.r#type().clone(),
+                        },
+                    );
+
                     // val.storage_location = StorageLocation::Heap;
                     // match val.r#type {
                     //     types::Type::Int => ,
@@ -123,8 +223,24 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
                 }
             },
             TypedTopLevelDeclaration::Extern(AnnotatedIdent { name, r#type }) => {
-                if let Type::Function(args, ret) = r#type {
-                    todo!()
+                if let Type::Function(args, ret) = &r#type {
+                    let mut signature = Signature::new(call_conv);
+
+                    for _arg in args {
+                        signature.params.push(AbiParam::new(I64));
+                    }
+                    signature.returns.push(AbiParam::new(I64));
+                    let fid = obj_module
+                        .declare_function(&name, Linkage::Import, &signature)
+                        .unwrap();
+                    scope.insert(
+                        name,
+                        CitrusValue::Function {
+                            function: fid,
+                            r#type,
+                        },
+                    );
+                    // todo!()
                     // functions.push((args, ));
                 } else {
                     return Err(CompileError::InvalidExternalType(r#type));
@@ -132,24 +248,28 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
             }
         };
     }
-    let eight = main_function_builder.ins().iconst(I64, i64::from(8));
-    let val = main_function_builder.ins().iconst(I64, i64::from(110));
+    for (name, value) in scope.iter() {
+        if let CitrusValue::Global { data_id, r#type } = value {
+            let global_value_ref =
+                obj_module.declare_data_in_func(*data_id, main_function_builder.func);
+            let global_ptr = main_function_builder
+                .ins()
+                .global_value(I64, global_value_ref);
 
-    let malloc = obj_module.declare_func_in_func(mallocfid, main_function_builder.func);
-    let ptr = main_function_builder.ins().call(malloc, &[eight]);
-    let recv = main_function_builder.inst_results(ptr)[0];
+            main_function_builder.ins().call(printnum, &[global_ptr]);
 
-    main_function_builder
-        .ins()
-        .store(MemFlags::new(), val, recv, 0);
-    let num = main_function_builder
-        .ins()
-        .load(I64, MemFlags::new(), recv, 0);
+            let heap_ptr = main_function_builder
+                .ins()
+                .load(I64, MemFlags::new(), global_ptr, 0);
+            main_function_builder.ins().call(printnum, &[heap_ptr]);
 
-    let printnum = obj_module.declare_func_in_func(printfid, main_function_builder.func);
-    main_function_builder.ins().call(printnum, &[num]);
-
-    main_function_builder.ins().return_(&[val]);
+            let value = main_function_builder
+                .ins()
+                .load(I64, MemFlags::new(), heap_ptr, 0);
+            main_function_builder.ins().call(printnum, &[value]);
+        }
+    }
+    main_function_builder.ins().return_(&[zero]);
     main_function_builder.seal_block(entry);
     main_function_builder.finalize();
 
@@ -208,8 +328,8 @@ fn compile_global(
             op,
             rhs,
         } => {
-            let lhs = compile_global(*lhs, builder)?.cranelift_value;
-            let rhs = compile_global(*rhs, builder)?.cranelift_value;
+            let lhs = compile_global(*lhs, builder)?.value().cloned()?;
+            let rhs = compile_global(*rhs, builder)?.value().cloned()?;
             let val = match op {
                 crate::ast::BinaryOperator::Add => builder.ins().iadd(lhs, rhs),
                 crate::ast::BinaryOperator::Subtract => builder.ins().isub(lhs, rhs),
@@ -233,13 +353,25 @@ fn compile_global(
                     builder.ins().icmp(IntCC::SignedLessThanOrEqual, lhs, rhs)
                 }
             };
-            Ok(CitrusValue {
+            Ok(CitrusValue::Value {
                 cranelift_value: val,
                 r#type,
                 storage_location: StorageLocation::Heap,
             })
         }
-        TypedExpr::Literal(_, _) => todo!(),
+        TypedExpr::Literal(r#type, literal) => match literal {
+            TypedLiteral::Int(int) => Ok(CitrusValue::Value {
+                cranelift_value: builder.ins().iconst(I64, int as i64),
+                r#type,
+                storage_location: StorageLocation::Heap,
+            }),
+            TypedLiteral::String(_) => todo!(),
+            TypedLiteral::Function {
+                args,
+                body,
+                ret_type,
+            } => unreachable!(),
+        },
         TypedExpr::Ident(_, _) => todo!(),
         TypedExpr::UnaryOp { r#type, op, target } => todo!(),
     }
@@ -292,5 +424,20 @@ fn compile_expr(
         } => todo!(),
         crate::types::TypedExpr::UnaryOp { r#type, op, target } => todo!(),
         crate::types::TypedExpr::Mutate { r#type, lhs, rhs } => todo!(),
+    }
+}
+
+fn get_size_bytes(r#type: &Type) -> i64 {
+    match r#type {
+        Type::Int => 8,
+        Type::Float => 8,
+        Type::Bool => 1,
+        Type::Unit => 0,
+        Type::Enum(_) => 8, // right now enums are unable to contain values and so this is just an
+        // ordinal value
+        Type::Array(ty, len) => get_size_bytes(ty) * len,
+        Type::Struct(fields) => fields.values().map(|ty| get_size_bytes(ty)).sum(),
+        Type::Function(_, _) => unreachable!(), //the compiler should convert functions to
+                                                //cranelift ir functions and not values by this point
     }
 }
