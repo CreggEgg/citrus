@@ -1,79 +1,87 @@
+use std::collections::HashMap;
+
+use crate::ast::{BinaryOperator, Literal, TypeName, UnaryOperator};
+
+pub mod inference;
+
 #[derive(Debug)]
-pub struct File {
-    declarations: Vec<TopLevelDeclaration>,
+pub struct TypedFile {
+    pub declarations: Vec<TypedTopLevelDeclaration>,
 }
 
 #[derive(Debug)]
-pub enum TopLevelDeclaration {
-    Type(TypeDeclaration),
-    Binding { lhs: String, rhs: UntypedExpr },
+pub enum TypedTopLevelDeclaration {
+    Binding { lhs: String, rhs: TypedExpr },
+    Extern(crate::types::AnnotatedIdent),
 }
 
-#[derive(Debug)]
-pub enum TypeDeclaration {
-    Struct(TypeName, Vec<AnnotatedIdent>),
-    Enum(TypeName, Vec<String>),
-    Alias(TypeName, TypeName),
-}
+// #[derive(Debug)]
+// pub enum TypeDeclaration {
+//     Struct(TypeName, Vec<AnnotatedIdent>),
+//     Enum(TypeName, Vec<String>),
+//     Alias(TypeName, TypeName),
+// }
 
-#[derive(Debug)]
-pub enum UntypedExpr {
+#[derive(Debug, Clone)]
+pub enum TypedExpr {
     BinaryOp {
-        lhs: Box<UntypedExpr>,
+        r#type: Type,
+        lhs: Box<TypedExpr>,
         op: BinaryOperator,
-        rhs: Box<UntypedExpr>,
+        rhs: Box<TypedExpr>,
     },
-    Literal(Literal),
-    Ident(String),
-    FunctionCall(String, Vec<UntypedExpr>),
+    Literal(Type, TypedLiteral),
+    Ident(Type, String),
+    FunctionCall(Type, String, Vec<TypedExpr>),
     Binding {
+        r#type: Type,
         lhs: String,
-        rhs: Box<UntypedExpr>,
+        rhs: Box<TypedExpr>,
+        local: bool,
     },
     IfElse {
-        condition: Box<UntypedExpr>,
-        then: Vec<UntypedExpr>,
-        r#else: Vec<UntypedExpr>,
+        r#type: Type,
+        condition: Box<TypedExpr>,
+        then: Vec<TypedExpr>,
+        r#else: Vec<TypedExpr>,
     },
     UnaryOp {
+        r#type: Type,
         op: UnaryOperator,
-        target: Box<UntypedExpr>,
+        target: Box<TypedExpr>,
+    },
+    Mutate {
+        r#type: Type,
+        lhs: String,
+        rhs: Box<TypedExpr>,
     },
 }
-#[derive(Debug)]
-pub enum BinaryOperator {
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Power,
-    Semicolon,
-    Gt,
-    Lt,
-    Gte,
-    Lte,
-}
-#[derive(Debug)]
-pub enum UnaryOperator {
-    Positive,
-    Negative,
-    Await,
-}
 
-#[derive(Debug)]
-pub struct AnnotatedIdent {
-    name: String,
-    type_name: TypeName,
-}
-#[derive(Debug)]
-pub enum Literal {
+#[derive(Debug, Clone)]
+pub enum TypedLiteral {
     Int(i32),
     String(String),
     Function {
         args: Vec<AnnotatedIdent>,
-        body: Vec<UntypedExpr>,
+        body: Vec<TypedExpr>,
         ret_type: Option<TypeName>,
     },
 }
 
-pub type TypeName = String;
+#[derive(Debug, PartialEq, Clone)]
+pub struct AnnotatedIdent {
+    pub name: String,
+    pub r#type: Type,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Type {
+    Int,
+    Float,
+    Bool,
+    Unit,
+    Enum(Vec<String>),
+    Array(Box<Type>),
+    Function(Vec<Type>, Box<Type>),
+    Struct(HashMap<String, Type>),
+}

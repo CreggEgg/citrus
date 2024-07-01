@@ -21,22 +21,21 @@ fn main() {
     let args = Args::parse();
     let file = &fs::read_to_string(args.file).unwrap();
     match args.mode.as_str() {
-        "build" => {}
+        "build" => {
+            let ast = ast::parser::parse(file).unwrap();
+            let typed = types::inference::type_file(ast::File { declarations: ast }).unwrap();
+            compiler::compile(typed.declarations).unwrap();
+        }
         "parse" => {
             let ast = ast::parser::parse(file).unwrap();
             dbg!(ast);
         }
-        "type" => {}
+        "type" => {
+            let ast = ast::parser::parse(file).unwrap();
+            dbg!(types::inference::type_file(ast::File { declarations: ast }).unwrap());
+        }
         mode => {
             eprintln!("Invalid mode: {}", mode);
         }
     }
-    match ast::parser::parse(file) {
-        Ok(ast) => {
-            dbg!(ast);
-        }
-        Err(error) => {
-            eprintln!("{:?}", error);
-        }
-    };
 }

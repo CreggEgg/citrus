@@ -1,4 +1,5 @@
-use crate::ast::{UnaryOperator, UntypedExpr, Literal, BinaryOperator, AnnotatedIdent, TopLevelDeclaration, TypeDeclaration};
+use crate::ast::{TypeName,UnaryOperator, UntypedExpr, Literal, BinaryOperator, AnnotatedIdent, TopLevelDeclaration, TypeDeclaration};
+use crate::types::Type;
 grammar;
 
 pub File: Vec<TopLevelDeclaration> = Semicolon<TopLevelDeclaration> => <>;
@@ -7,22 +8,31 @@ pub File: Vec<TopLevelDeclaration> = Semicolon<TopLevelDeclaration> => <>;
 TopLevelDeclaration: TopLevelDeclaration = {
 	TypeDeclaration => TopLevelDeclaration::Type(<>),
 	<b: TopLevelBinding> => b,
+	"extern" <a: AnnotatedIdent> => TopLevelDeclaration::Extern(a),
 }
 
 TypeDeclaration: TypeDeclaration = {
 	"type" <i: Ident> "=" "{" <f: Comma<AnnotatedIdent>> "}" => TypeDeclaration::Struct(i,f),
 	"type" <i: Ident> "=" "[" <v: Comma<Ident>> "]" => TypeDeclaration::Enum(i, v),
-	"type" <i: Ident> "=" <t: Ident> => TypeDeclaration::Alias(i, t),
+	"type" <i: Ident> "=" <t: Ident> => TypeDeclaration::Alias(i, TypeName::Named(t)),
+}
+
+Type: TypeName = {
+	"[" <t: Type> "]" => TypeName::Array(Box::new(<>)),
+	"fn(" <a: Comma<Type>> ")" <r: Annotation?> => TypeName::Function(a, Box::new(r.unwrap_or(TypeName::Named("unit".into())))),
+	<i: Ident> => TypeName::Named(i)
 }
 
 TopLevelBinding: TopLevelDeclaration = "let" <i: Ident> "=" <e: Expr> => TopLevelDeclaration::Binding {lhs: i, rhs: e};
 
-AnnotatedIdent: AnnotatedIdent = <i: Ident> ":" <t: Ident> => AnnotatedIdent {name: i, type_name: t};
+AnnotatedIdent: AnnotatedIdent = <i: Ident> ":" <t: Type> => AnnotatedIdent {name: i, type_name: t};
 
 Block: Vec<UntypedExpr> = Semicolon<Expr> => <>;
 Expr: UntypedExpr = {
+	#[precedence(level="10")]
+	"let" <l: "local"?> <i: Ident> "="  <e: Expr> => UntypedExpr::Binding {lhs: i, local: l.is_some(), rhs: Box::new(e)},
 	#[precedence(level="9")]
-	"let" <i: Ident> "="  <e: Expr> => UntypedExpr::Binding {lhs: i, rhs: Box::new(e)},
+	<i: Ident> "="  <e: Expr> => UntypedExpr::Mutate {lhs: i, rhs: Box::new(e)},
 	#[precedence(level="0")]
 	Literal => UntypedExpr::Literal(<>),
 	#[precedence(level="2")] #[assoc(side="left")]
@@ -41,10 +51,10 @@ Expr: UntypedExpr = {
 	<l: Expr> "<=" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Lte, rhs: Box::new(r)},
 	"if" <c: Expr> "{" <t: Block> "}" "else" "{" <e: Block> "}" => UntypedExpr::IfElse { condition: Box::new(c), then: t, r#else: e},
 	#[precedence(level="4")]
-	"@" <e: Expr> => UntypedExpr::UnaryOp {op: UnaryOperator::Await, target: Box::new(e)},
+	"@" <e: Expr> => UntypedExpr::UnaryOp {op: UnaryOperator::Exclave, target: Box::new(e)},
 
 }
-Annotation: String = ":" <i: Ident> => i; 
+Annotation: TypeName = ":" <i: Ident> => TypeName::Named(i); 
 FunctionArgs: Vec<UntypedExpr> = "(" <a: Comma<Expr>> ")" => a;
 Ident: String = r"[a-zA-Z_]+" => <>.to_owned();
 Literal: Literal = {

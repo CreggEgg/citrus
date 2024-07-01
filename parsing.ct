@@ -1,0 +1,36 @@
+type struct = {
+	hello: int,
+	world: bool
+};
+type enum = [
+	hello,
+	world
+];
+type alias = enum;
+let const = 5;
+let use_alias = fn(a: alias): alias {
+	@a
+};
+let ts = fn(b: int): bool {
+	b > 5
+};
+let add = fn(a: int, b: int): int {
+	a
+};
+let println = fn(string: str) {
+	string
+};
+let greeting = fn(): str {
+	"Hello world"
+};
+let main = fn() {
+	let local message = greeting();  
+	println("hi");  
+	if const < 3 {   
+		println("math broke")  
+	} else {   
+		println("Its fine")  
+	};  
+	println(message); 
+	message = "hi there";
+};

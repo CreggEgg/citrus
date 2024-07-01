@@ -1,0 +1,4 @@
+extern println: fn(str): unit;
+let main = fn() {
+	println("hello world")
+}
