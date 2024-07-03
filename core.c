@@ -4,9 +4,13 @@
 
 // extern int64_t printnum(int64_t *);
 extern void printnum(int64_t);
+extern void printint(int64_t);
 //
 
 void printnum(int64_t n) {
+	printf("%d\n", n);
+}
+void printint(int64_t n) {
 	printf("%d\n", n);
 }
 // void *ptr(int64_t v) {

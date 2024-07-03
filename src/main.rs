@@ -1,7 +1,7 @@
 #![warn(clippy::pedantic, clippy::nursery, clippy::cargo)]
-use std::fs;
+use std::{fs, path::Path};
 
-use clap::{command, Parser};
+use clap::{command, Command, Parser};
 
 mod ast;
 mod compiler;
@@ -25,6 +25,15 @@ fn main() {
             let ast = ast::parser::parse(file).unwrap();
             let typed = types::inference::type_file(ast::File { declarations: ast }).unwrap();
             compiler::compile(typed.declarations).unwrap();
+        }
+        "run" => {
+            let ast = ast::parser::parse(file).unwrap();
+            let typed = types::inference::type_file(ast::File { declarations: ast }).unwrap();
+            compiler::compile(typed.declarations).unwrap();
+            let mut path = Path::new("./").canonicalize().unwrap();
+            path.push(Path::new("./out/main"));
+            let out = std::process::Command::new(path).output().unwrap();
+            println!("{}", String::from_utf8(out.stdout).unwrap());
         }
         "parse" => {
             let ast = ast::parser::parse(file).unwrap();

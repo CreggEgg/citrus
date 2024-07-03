@@ -1,5 +1,5 @@
-extern println: fn([int ; 13]): unit;
-let x = 5;
+extern printint: fn(int): unit;
+let x = 50;
 let main = fn() {
-	println("hello world")
+	printint(5 < 10)
 }
