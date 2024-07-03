@@ -1,16 +1,50 @@
 #![warn(clippy::pedantic, clippy::nursery, clippy::cargo)]
-use std::fs;
+use std::{fs, path::Path};
+
+use clap::{command, Command, Parser};
 
 mod ast;
 mod compiler;
+mod types;
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// What to do
+    mode: String,
+
+    /// File to operate on
+    file: String,
+}
+
 fn main() {
-    let file = &fs::read_to_string("./test.ct").unwrap();
-    match ast::parser::parse(file) {
-        Ok(ast) => {
+    let args = Args::parse();
+    let file = &fs::read_to_string(args.file).unwrap();
+    match args.mode.as_str() {
+        "build" => {
+            let ast = ast::parser::parse(file).unwrap();
+            let typed = types::inference::type_file(ast::File { declarations: ast }).unwrap();
+            compiler::compile(typed.declarations).unwrap();
+        }
+        "run" => {
+            let ast = ast::parser::parse(file).unwrap();
+            let typed = types::inference::type_file(ast::File { declarations: ast }).unwrap();
+            compiler::compile(typed.declarations).unwrap();
+            let mut path = Path::new("./").canonicalize().unwrap();
+            path.push(Path::new("./out/main"));
+            let out = std::process::Command::new(path).output().unwrap();
+            println!("{}", String::from_utf8(out.stdout).unwrap());
+        }
+        "parse" => {
+            let ast = ast::parser::parse(file).unwrap();
             dbg!(ast);
         }
-        Err(error) => {
-            eprintln!("{:?}", error);
+        "type" => {
+            let ast = ast::parser::parse(file).unwrap();
+            dbg!(types::inference::type_file(ast::File { declarations: ast }).unwrap());
         }
-    };
+        mode => {
+            eprintln!("Invalid mode: {}", mode);
+        }
+    }
 }

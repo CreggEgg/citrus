@@ -2,23 +2,30 @@ pub mod parser;
 
 #[derive(Debug)]
 pub struct File {
-    declarations: Vec<TopLevelDeclaration>,
+    pub declarations: Vec<TopLevelDeclaration>,
 }
 
 #[derive(Debug)]
 pub enum TopLevelDeclaration {
     Type(TypeDeclaration),
     Binding { lhs: String, rhs: UntypedExpr },
+    Extern(AnnotatedIdent),
 }
 
 #[derive(Debug)]
 pub enum TypeDeclaration {
-    Struct(TypeName, Vec<AnnotatedIdent>),
-    Enum(TypeName, Vec<String>),
-    Alias(TypeName, TypeName),
+    Struct(String, Vec<AnnotatedIdent>),
+    Enum(String, Vec<String>),
+    Alias(String, TypeName),
 }
+// #[derive(Debug, Copy, Clone)]
+// enum Mode {
+//     Global,
+//     Local,
+//     Exclave,
+// }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum UntypedExpr {
     BinaryOp {
         lhs: Box<UntypedExpr>,
@@ -30,6 +37,7 @@ pub enum UntypedExpr {
     FunctionCall(String, Vec<UntypedExpr>),
     Binding {
         lhs: String,
+        local: bool,
         rhs: Box<UntypedExpr>,
     },
     IfElse {
@@ -41,33 +49,36 @@ pub enum UntypedExpr {
         op: UnaryOperator,
         target: Box<UntypedExpr>,
     },
+    Mutate {
+        lhs: String,
+        rhs: Box<UntypedExpr>,
+    },
 }
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum BinaryOperator {
     Add,
     Subtract,
     Multiply,
     Divide,
     Power,
-    Semicolon,
     Gt,
     Lt,
     Gte,
     Lte,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum UnaryOperator {
     Positive,
     Negative,
-    Await,
+    Exclave,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AnnotatedIdent {
-    name: String,
-    type_name: TypeName,
+    pub name: String,
+    pub type_name: TypeName,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Literal {
     Int(i32),
     String(String),
@@ -78,4 +89,9 @@ pub enum Literal {
     },
 }
 
-pub type TypeName = String;
+#[derive(Debug, Clone)]
+pub enum TypeName {
+    Named(String),
+    Array(Box<TypeName>, i64),
+    Function(Vec<TypeName>, Box<TypeName>),
+}

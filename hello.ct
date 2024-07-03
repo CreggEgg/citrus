@@ -1,0 +1,5 @@
+extern printint: fn(int): unit;
+let x = 50;
+let main = fn() {
+	printint(5 < 10)
+}
