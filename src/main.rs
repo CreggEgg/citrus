@@ -31,9 +31,9 @@ fn main() {
             let typed = types::inference::type_file(ast::File { declarations: ast }).unwrap();
             compiler::compile(typed.declarations).unwrap();
             let mut path = Path::new("./").canonicalize().unwrap();
-            path.push(Path::new("./out/main"));
+            path.push(Path::new("out/main"));
             let out = std::process::Command::new(path).output().unwrap();
-            println!("{}", String::from_utf8(out.stdout).unwrap());
+            println!("{}", String::from_utf8_lossy(&out.stdout));
         }
         "parse" => {
             let ast = ast::parser::parse(file).unwrap();

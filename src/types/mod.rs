@@ -64,7 +64,7 @@ pub enum TypedLiteral {
     Function {
         args: Vec<AnnotatedIdent>,
         body: Vec<TypedExpr>,
-        ret_type: Option<TypeName>,
+        ret_type: Option<Type>,
     },
 }
 
@@ -81,7 +81,7 @@ pub enum Type {
     Bool,
     Unit,
     Enum(Vec<String>),
-    Array(Box<Type>, i64),
+    Array(Box<Type>),
     Function(Vec<Type>, Box<Type>),
     Struct(HashMap<String, Type>),
 }

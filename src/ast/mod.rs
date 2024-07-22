@@ -92,6 +92,6 @@ pub enum Literal {
 #[derive(Debug, Clone)]
 pub enum TypeName {
     Named(String),
-    Array(Box<TypeName>, i64),
+    Array(Box<TypeName>),
     Function(Vec<TypeName>, Box<TypeName>),
 }

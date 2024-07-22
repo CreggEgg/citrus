@@ -1,6 +1,8 @@
 use std::{any::Any, clone, collections::HashMap};
 
-use crate::ast::{AnnotatedIdent, File, TopLevelDeclaration, TypeDeclaration, TypeName};
+use crate::ast::{
+    AnnotatedIdent, File, Literal, TopLevelDeclaration, TypeDeclaration, TypeName, UntypedExpr,
+};
 
 use super::{Type, TypedExpr, TypedFile, TypedLiteral, TypedTopLevelDeclaration};
 
@@ -29,9 +31,26 @@ pub fn type_file(ast: File) -> Result<TypedFile, TypeError> {
                 types.insert(name, r#type);
             }
             TopLevelDeclaration::Binding { lhs, rhs } => {
-                let expr = type_expr(rhs, &types, &scope)?;
-                scope.insert(lhs.clone(), get_type(expr.0.clone()));
-                declarations.push(super::TypedTopLevelDeclaration::Binding { lhs, rhs: expr.0 })
+                let expr = if let UntypedExpr::Literal(Literal::Function {
+                    args,
+                    body,
+                    ret_type,
+                }) = rhs
+                {
+                    let literal = Literal::Function {
+                        args,
+                        body,
+                        ret_type,
+                    };
+                    TypedExpr::Literal(
+                        get_literal_type(&literal, &types, &scope)?,
+                        type_literal(&literal, &types, &scope, Some(lhs.clone()))?,
+                    )
+                } else {
+                    type_expr(rhs, &types, &scope)?.0
+                };
+                scope.insert(lhs.clone(), get_type(expr.clone()));
+                declarations.push(super::TypedTopLevelDeclaration::Binding { lhs, rhs: expr })
             }
             TopLevelDeclaration::Extern(annotated_ident) => {
                 let ty = type_from_name(annotated_ident.type_name, &types)?;
@@ -101,10 +120,41 @@ fn type_expr(
                 scope.clone(),
             ))
         }
+        crate::ast::UntypedExpr::Binding { lhs, rhs, local } => {
+            let rhs = if let UntypedExpr::Literal(Literal::Function {
+                args,
+                body,
+                ret_type,
+            }) = *rhs
+            {
+                let literal = Literal::Function {
+                    args,
+                    body,
+                    ret_type,
+                };
+                TypedExpr::Literal(
+                    get_literal_type(&literal, types, scope)?,
+                    type_literal(&literal, types, scope, Some(lhs.clone()))?,
+                )
+            } else {
+                type_expr(*rhs, types, scope)?.0
+            };
+            let mut body_scope = scope.clone();
+            body_scope.insert(lhs.clone(), get_type(rhs.clone()));
+            Ok((
+                TypedExpr::Binding {
+                    r#type: get_type(rhs.clone()),
+                    lhs: lhs.clone(),
+                    rhs: Box::new(rhs),
+                    local,
+                },
+                body_scope,
+            ))
+        }
         crate::ast::UntypedExpr::Literal(literal) => Ok((
             TypedExpr::Literal(
                 get_literal_type(&literal, types, scope)?,
-                type_literal(&literal, types, scope)?,
+                type_literal(&literal, types, scope, None)?,
             ),
             scope.clone(),
         )),
@@ -156,20 +206,6 @@ fn type_expr(
             } else {
                 Err(TypeError::NonFunctionCall(name.clone(), func.clone()))
             }
-        }
-        crate::ast::UntypedExpr::Binding { lhs, rhs, local } => {
-            let rhs = type_expr(*rhs, types, scope)?;
-            let mut body_scope = scope.clone();
-            body_scope.insert(lhs.clone(), get_type(rhs.0.clone()));
-            Ok((
-                TypedExpr::Binding {
-                    r#type: get_type(rhs.0.clone()),
-                    lhs: lhs.clone(),
-                    rhs: Box::new(rhs.0),
-                    local,
-                },
-                body_scope,
-            ))
         }
         crate::ast::UntypedExpr::IfElse {
             condition,
@@ -297,6 +333,7 @@ fn type_literal(
     literal: &crate::ast::Literal,
     types: &HashMap<String, Type>,
     scope: &HashMap<String, Type>,
+    fn_name: Option<String>,
 ) -> Result<TypedLiteral, TypeError> {
     Ok(match literal {
         crate::ast::Literal::Int(x) => TypedLiteral::Int(*x),
@@ -315,7 +352,22 @@ fn type_literal(
                     })
                 })
                 .collect::<Result<Vec<crate::types::AnnotatedIdent>, TypeError>>()?;
+            let ret = match ret_type {
+                Some(ret) => Some(type_from_name(ret.clone(), types)?),
+                None => None,
+            };
             let mut body_scope = scope.clone();
+            if let Some(name) = fn_name {
+                body_scope.insert(
+                    name,
+                    Type::Function(
+                        args.iter().map(|arg| arg.r#type.clone()).collect(),
+                        Box::new(ret.clone().unwrap_or(Type::Unit)),
+                    ),
+                );
+            };
+            #[cfg(debug_assertions)]
+            dbg!(&body_scope);
             for arg in &args {
                 body_scope.insert(arg.name.clone(), arg.r#type.clone());
             }
@@ -329,7 +381,10 @@ fn type_literal(
             TypedLiteral::Function {
                 args,
                 body: typed_body,
-                ret_type: ret_type.clone(),
+                ret_type: ret, //type_from_name(
+                               //ret_type.clone().unwrap_or(TypeName::Named("unit".into())),
+                               //types,
+                               //),
             }
         }
     })
@@ -342,7 +397,7 @@ fn get_literal_type(
 ) -> Result<Type, TypeError> {
     match literal {
         crate::ast::Literal::Int(_) => Ok(Type::Int),
-        crate::ast::Literal::String(val) => Ok(Type::Array(Box::new(Type::Int), val.len() as i64)),
+        crate::ast::Literal::String(val) => Ok(Type::Array(Box::new(Type::Int))),
         crate::ast::Literal::Function {
             args,
             body,
@@ -379,9 +434,7 @@ fn type_from_name(type_name: TypeName, types: &HashMap<String, Type>) -> Result<
             .get(&name)
             .ok_or(TypeError::UnknownType(name))
             .cloned(),
-        TypeName::Array(name, size) => {
-            Ok(Type::Array(Box::new(type_from_name(*name, types)?), size))
-        }
+        TypeName::Array(name) => Ok(Type::Array(Box::new(type_from_name(*name, types)?))),
         TypeName::Function(args, ret) => Ok(Type::Function(
             args.iter()
                 .map(|annotation| {

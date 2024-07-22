@@ -14,11 +14,11 @@ TopLevelDeclaration: TopLevelDeclaration = {
 TypeDeclaration: TypeDeclaration = {
 	"type" <i: Ident> "=" "{" <f: Comma<AnnotatedIdent>> "}" => TypeDeclaration::Struct(i,f),
 	"type" <i: Ident> "=" "[" <v: Comma<Ident>> "]" => TypeDeclaration::Enum(i, v),
-	"type" <i: Ident> "=" <t: Ident> => TypeDeclaration::Alias(i, TypeName::Named(t)),
+	"alias" <i: Ident> "=" <t: Type> => TypeDeclaration::Alias(i, t),
 }
 
 Type: TypeName = {
-	"[" <t: Type> ";" <s: r#"[0-9]+"#> "]" => TypeName::Array(Box::new(t), s.parse::<i64>().unwrap()),
+	"[" <t: Type> "]" => TypeName::Array(Box::new(t)),
 	"fn(" <a: Comma<Type>> ")" <r: Annotation?> => TypeName::Function(a, Box::new(r.unwrap_or(TypeName::Named("unit".into())))),
 	<i: Ident> => TypeName::Named(i)
 }
@@ -54,12 +54,12 @@ Expr: UntypedExpr = {
 	"@" <e: Expr> => UntypedExpr::UnaryOp {op: UnaryOperator::Exclave, target: Box::new(e)},
 
 }
-Annotation: TypeName = ":" <i: Ident> => TypeName::Named(i); 
+Annotation: TypeName = ":" <i: Type> => i; 
 FunctionArgs: Vec<UntypedExpr> = "(" <a: Comma<Expr>> ")" => a;
 Ident: String = r"[a-zA-Z_]+" => <>.to_owned();
 Literal: Literal = {
 	r"[0-9]+" => Literal::Int(<>.parse::<i32>().unwrap()),
-	r#"".+""# => Literal::String(<>.to_owned()),
+	<s: r#"".+""#> => Literal::String(s[1..(s.len() - 1)].to_owned()),
 	"fn(" <a: Comma<AnnotatedIdent>> ")" <r: Annotation?> "{"<b: Block>"}" => Literal::Function {args: a, body: b,ret_type: r}
 }
 
