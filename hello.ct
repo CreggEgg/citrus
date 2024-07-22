@@ -1,8 +1,5 @@
 alias string = [int];
-
-extern printint: fn(int): unit;
 extern printstr: fn(string): unit;
-
 let main = fn() {
-	printstr("hello world")
+  printstr("hello world");
 }

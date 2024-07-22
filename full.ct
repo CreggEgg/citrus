@@ -1,0 +1,28 @@
+
+alias string = [int];
+extern printstr: fn(string): unit;
+extern printint: fn(int): unit;
+type struct = {
+	hello: int,
+	world: bool
+};
+type enum = [
+	hello,
+	world
+];
+alias my_alias = enum;
+let const = 5;
+let add = fn(a: int, b: int): int {
+	a+b
+};
+let main = fn() {
+	let handle = add(1, 2);  
+	printstr("Hello world");  
+	printint(5+5);  
+	if const < 3 {   
+		printstr("math broke")  
+	} else {   
+		printstr("Its fine")  
+	};  
+	printint(handle); 
+};
