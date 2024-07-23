@@ -509,6 +509,7 @@ fn compile_global(
                 crate::ast::BinaryOperator::Subtract => builder.ins().isub(lhs, rhs),
                 crate::ast::BinaryOperator::Multiply => builder.ins().imul(lhs, rhs),
                 crate::ast::BinaryOperator::Divide => builder.ins().sdiv(lhs, rhs),
+                crate::ast::BinaryOperator::Modulo => builder.ins().srem(lhs, rhs),
                 crate::ast::BinaryOperator::Power => todo!(),
                 // crate::ast::BinaryOperator::Semicolon => todo!(),
                 crate::ast::BinaryOperator::Gt => cmp(IntCC::SignedGreaterThan, lhs, rhs, builder),
@@ -520,6 +521,9 @@ fn compile_global(
                 crate::ast::BinaryOperator::Lte => {
                     cmp(IntCC::SignedLessThanOrEqual, lhs, rhs, builder)
                 }
+                crate::ast::BinaryOperator::Eq => cmp(IntCC::Equal, lhs, rhs, builder),
+                crate::ast::BinaryOperator::And => builder.ins().band(lhs, rhs),
+                crate::ast::BinaryOperator::Or => builder.ins().bor(lhs, rhs),
             };
             Ok(CitrusValue::Value {
                 cranelift_value: val,
@@ -545,6 +549,7 @@ fn compile_global(
                 body,
                 ret_type,
             } => unreachable!(),
+            TypedLiteral::Array(_) => todo!(),
         },
         TypedExpr::Ident(_, _) => todo!(),
         TypedExpr::UnaryOp { r#type, op, target } => todo!(),
@@ -623,6 +628,30 @@ fn compile_expr(
                         r#type,
                         // storage_location: StorageLocation::Stack,
                     },
+                    crate::ast::BinaryOperator::Eq => CitrusValue::Value {
+                        cranelift_value: cmp(IntCC::Equal, lhs, rhs, builder),
+
+                        r#type,
+                        // storage_location: StorageLocation::Stack,
+                    },
+                    crate::ast::BinaryOperator::And => CitrusValue::Value {
+                        cranelift_value: builder.ins().band(lhs, rhs),
+
+                        r#type,
+                        // storage_location: StorageLocation::Stack,
+                    },
+                    crate::ast::BinaryOperator::Or => CitrusValue::Value {
+                        cranelift_value: builder.ins().bor(lhs, rhs),
+
+                        r#type,
+                        // storage_location: StorageLocation::Stack,
+                    },
+                    crate::ast::BinaryOperator::Modulo => CitrusValue::Value {
+                        cranelift_value: builder.ins().srem(lhs, rhs),
+
+                        r#type,
+                        // storage_location: StorageLocation::Stack,
+                    },
                 },
                 scope,
             ))
@@ -663,6 +692,28 @@ fn compile_expr(
                     cranelift_value: builder.ins().iconst(I64, if value { 1 } else { 0 }),
                     r#type: Type::Bool,
                 },
+                TypedLiteral::Array(vals) => {
+                    let stack_slot = builder.create_sized_stack_slot(StackSlotData::new(
+                        StackSlotKind::ExplicitSlot,
+                        64 * (vals.len() as u32 + 1),
+                    ));
+                    let addr = builder.ins().stack_addr(I64, stack_slot, 0);
+                    let len = builder.ins().iconst(I64, vals.len() as i64);
+                    builder.ins().store(MemFlags::new(), len, addr, 0);
+
+                    for (i, val) in vals.iter().enumerate() {
+                        let val = compile_expr(val.clone(), builder, scope.clone(), obj_module)?
+                            .0
+                            .value(builder, obj_module)?;
+                        builder
+                            .ins()
+                            .store(MemFlags::new(), val, addr, (i + 1) as i32 * 64);
+                    }
+                    CitrusValue::Value {
+                        cranelift_value: addr,
+                        r#type: Type::Array(Box::new(Type::Int)),
+                    }
+                }
             },
             scope,
         )),
@@ -772,7 +823,15 @@ fn compile_expr(
             ))
         }
         crate::types::TypedExpr::UnaryOp { r#type, op, target } => todo!(),
-        crate::types::TypedExpr::Mutate { r#type, lhs, rhs } => todo!(),
+        crate::types::TypedExpr::Mutate { r#type, lhs, rhs } => {
+            let (new_value, _) = compile_expr(*rhs, builder, scope.clone(), obj_module)?;
+            if let Some(old) = scope.get_mut(&lhs) {
+                *old = new_value.clone();
+                Ok((new_value, scope))
+            } else {
+                Err(CompileError::UndefinedValue(lhs))
+            }
+        }
     }
 }
 

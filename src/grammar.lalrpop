@@ -42,9 +42,13 @@ Expr: UntypedExpr = {
 	<l: Expr> "<" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Lt, rhs: Box::new(r)},
 	<l: Expr> ">=" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Gte, rhs: Box::new(r)},
 	<l: Expr> "<=" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Lte, rhs: Box::new(r)},
+	<l: Expr> "%" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Modulo, rhs: Box::new(r)},
 	#[precedence(level="3")] #[assoc(side="left")]
 	<l: Expr> "*" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Multiply, rhs: Box::new(r)},
 	<l: Expr> "/" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Divide, rhs: Box::new(r)},
+	<l: Expr> "==" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Eq, rhs: Box::new(r)},
+	<l: Expr> "&&" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::And, rhs: Box::new(r)},
+	<l: Expr> "||" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Or, rhs: Box::new(r)},
 	#[precedence(level="5")]
 	<i: Ident> <a: FunctionArgs> => UntypedExpr::FunctionCall(i, a),
 	#[precedence(level="1")] #[assoc(side="left")]
@@ -52,7 +56,8 @@ Expr: UntypedExpr = {
 	"if" <c: Expr> "{" <t: Block> "}" "else" "{" <e: Block> "}" => UntypedExpr::IfElse { condition: Box::new(c), then: t, r#else: e},
 	#[precedence(level="4")]
 	"@" <e: Expr> => UntypedExpr::UnaryOp {op: UnaryOperator::Exclave, target: Box::new(e)},
-
+	"!" <e: Expr> => UntypedExpr::UnaryOp {op: UnaryOperator::Not, target: Box::new(e)},
+	"-" <e: Expr> => UntypedExpr::UnaryOp {op: UnaryOperator::Negative, target: Box::new(e)},
 }
 Annotation: TypeName = ":" <i: Type> => i; 
 FunctionArgs: Vec<UntypedExpr> = "(" <a: Comma<Expr>> ")" => a;
@@ -62,7 +67,9 @@ Literal: Literal = {
 	"false" => Literal::Bool(false),
 	"true" => Literal::Bool(true),
 	<s: r#"".+""#> => Literal::String(s[1..(s.len() - 1)].to_owned()),
-	"fn(" <a: Comma<AnnotatedIdent>> ")" <r: Annotation?> "{"<b: Block>"}" => Literal::Function {args: a, body: b,ret_type: r}
+	"fn(" <a: Comma<AnnotatedIdent>> ")" <r: Annotation?> "{"<b: Block>"}" => Literal::Function {args: a, body: b,ret_type: r},
+	"[" <v: Comma<Expr>> "]" => Literal::Array(v)
+
 }
 
 Comma<T>: Vec<T> = { // (1)
