@@ -66,6 +66,8 @@ pub fn type_file(ast: File) -> Result<TypedFile, TypeError> {
             }
         }
     }
+    #[cfg(debug_assertions)]
+    dbg!(scope);
     Ok(TypedFile { declarations })
 }
 
@@ -473,8 +475,6 @@ fn type_literal(
                     ),
                 );
             };
-            #[cfg(debug_assertions)]
-            dbg!(&body_scope);
             for arg in &args {
                 body_scope.insert(arg.name.clone(), arg.r#type.clone());
             }
@@ -485,6 +485,8 @@ fn type_literal(
                 body_scope = scope;
                 typed_body.push(expr);
             }
+            #[cfg(debug_assertions)]
+            dbg!(&body_scope);
             TypedLiteral::Function {
                 args,
                 body: typed_body,

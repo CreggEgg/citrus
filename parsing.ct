@@ -1,36 +1,38 @@
-type struct = {
-	hello: int,
-	world: bool
+alias string = [int];
+extern printstr: fn(string): unit;
+extern printint: fn(int): unit;
+
+let sum_to = fn(a: int): int {
+    let ugly_hack = a + 1;
+    let num = a * ugly_hack;
+    num/2
 };
-type enum = [
-	hello,
-	world
-];
-type alias = enum;
-let const = 5;
-let use_alias = fn(a: alias): alias {
-	@a
+
+let three_five_sum = fn(a: int): int {
+    let n = a - 1;
+
+    let num_threes = n/3;
+    let num_fives = n/5;
+    let num_fifteen = n/15;
+
+    let a = sum_to(num_threes);
+    let b = sum_to(num_fives);
+    let c = sum_to(num_fifteen);
+
+    let a_ = a * 3;
+    let b_ = b * 5;
+    let c_ = c * 15;
+
+    printint(a_);
+    printint(b_);
+
+    printstr("29");
+
+    a_ + b_ - c_
 };
-let ts = fn(b: int): bool {
-	b > 5
-};
-let add = fn(a: int, b: int): int {
-	a
-};
-let println = fn(string: str) {
-	string
-};
-let greeting = fn(): str {
-	"Hello world"
-};
+
 let main = fn() {
-	let local message = greeting();  
-	println("hi");  
-	if const < 3 {   
-		println("math broke")  
-	} else {   
-		println("Its fine")  
-	};  
-	println(message); 
-	message = "hi there";
+    printstr("result: ");
+    let val = three_five_sum(1000);
+    printint(val)
 };

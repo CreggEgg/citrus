@@ -495,10 +495,11 @@ fn compile_block(
     for (name, value) in scope {
         if let CitrusValue::Value {
             cranelift_value,
-            r#type,
+            ref r#type,
             heap: true,
         } = value
         {
+            println!("freeing: {name}, {:?}", value);
             function_builder.ins().call(free, &[cranelift_value]);
         }
     }
@@ -553,8 +554,11 @@ fn move_to_heap(
         } else {
             Ok(CitrusValue::Value {
                 cranelift_value,
-                r#type,
-                heap: true,
+                r#type: r#type.clone(),
+                heap: match r#type {
+                    Type::Int | Type::Bool => false,
+                    _ => true,
+                },
             })
         }
     } else {
@@ -896,14 +900,31 @@ fn compile_expr(
                 let ret = builder.ins().call(func, &args);
                 let ret = builder.inst_results(ret).get(0);
                 Ok(match ret {
-                    Some(ret) => (
-                        CitrusValue::Value {
-                            cranelift_value: *ret,
-                            r#type: r#type.clone(),
-                            heap: true,
-                        },
-                        scope,
-                    ),
+                    Some(ret) => {
+                        if let Type::Function(args, r#type) = r#type {
+                            (
+                                CitrusValue::Value {
+                                    cranelift_value: *ret,
+                                    r#type: *r#type.clone(),
+                                    heap: match **r#type {
+                                        Type::Int | Type::Bool => false,
+                                        _ => true,
+                                    },
+                                },
+                                scope,
+                            )
+                        } else {
+                            let unit = builder.ins().iconst(I64, 0);
+                            (
+                                CitrusValue::Value {
+                                    cranelift_value: unit,
+                                    r#type: Type::Unit,
+                                    heap: false,
+                                },
+                                scope,
+                            )
+                        }
+                    }
                     None => {
                         let unit = builder.ins().iconst(I64, 0);
                         (
