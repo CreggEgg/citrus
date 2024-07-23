@@ -33,6 +33,7 @@ pub enum CompileError {
     ModuleError(cranelift_module::ModuleError),
     UndefinedValue(String),
     CallOnNonFunction(Type),
+    InvalidHeapValue(CitrusValue),
 }
 
 #[derive(Clone, Debug)]
@@ -41,6 +42,7 @@ enum Lifetime {
     Stack,
 }
 
+#[derive(Clone, Debug)]
 struct SystemFunctions {
     malloc: FuncId,
     free: FuncId,
@@ -180,6 +182,10 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
     signature.params.push(AbiParam::new(I64));
     let freefid = obj_module
         .declare_function("free", Linkage::Import, &signature)
+        .unwrap();
+    signature.params.push(AbiParam::new(I64));
+    let copyfid = obj_module
+        .declare_function("memcpy", Linkage::Import, &signature)
         .unwrap();
 
     //end c stuff
@@ -375,8 +381,11 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
             &mut function_builder,
             &mut obj_module,
             scope.clone(),
-            mallocfid,
-            freefid,
+            SystemFunctions {
+                malloc: mallocfid,
+                free: freefid,
+                copy: copyfid,
+            },
         )?
         .value(&mut function_builder, &mut obj_module)?];
         function_builder
@@ -446,8 +455,7 @@ fn compile_block(
     function_builder: &mut FunctionBuilder<'_>,
     obj_module: &mut ObjectModule,
     mut scope: HashMap<String, CitrusValue>,
-    malloc: FuncId,
-    free: FuncId,
+    functions: SystemFunctions,
 ) -> Result<CitrusValue, CompileError> {
     let mut ret = None;
     let zero = function_builder.ins().iconst(I64, 0);
@@ -458,16 +466,20 @@ fn compile_block(
             function_builder,
             scope.clone(),
             obj_module,
-            malloc,
-            free,
+            functions.clone(),
         )?;
         scope = newscope;
 
         if i == body.len() - 1 {
-            ret = Some(move_to_heap(val));
+            ret = Some(move_to_heap(
+                val,
+                functions.clone(),
+                function_builder,
+                obj_module,
+            )?);
         }
     }
-    let free = obj_module.declare_func_in_func(free, function_builder.func);
+    let free = obj_module.declare_func_in_func(functions.free, function_builder.func);
     for (name, value) in scope {
         if let CitrusValue::Value {
             cranelift_value,
@@ -487,35 +499,54 @@ fn compile_block(
 
 fn move_to_heap(
     val: CitrusValue,
-    malloc: FuncRef,
+    functions: SystemFunctions,
     builder: &mut FunctionBuilder,
+    obj_module: &mut ObjectModule,
 ) -> Result<CitrusValue, CompileError> {
     if let CitrusValue::Value {
         cranelift_value,
         r#type,
-        heap: false,
+        heap,
     } = val
     {
-        let value = match r#type {
-            Type::Int | Type::Bool => cranelift_value,
-            Type::Array(value) => {
-                let len = builder.ins().load(I64, MemFlags::new(), cranelift_value, 0);
-                let eight = builder.ins().iconst(I64, 8);
-                let size = builder.ins().imul(len, eight);
-                let ptr_ins = builder.ins().call(malloc, &[size]);
-                let heap_ptr = builder.inst_results(ptr_ins)[0];
+        if !heap {
+            let malloc = obj_module.declare_func_in_func(functions.malloc, builder.func);
+            let copy = obj_module.declare_func_in_func(functions.copy, builder.func);
+            let value = match r#type {
+                Type::Int | Type::Bool => cranelift_value,
+                Type::Array(ref value) => {
+                    let len = builder.ins().load(I64, MemFlags::new(), cranelift_value, 0);
+                    let eight = builder.ins().iconst(I64, 8);
+                    let len_bytes = builder.ins().imul(len, eight);
+                    let size = builder.ins().iadd(len_bytes, eight);
+                    let ptr_ins = builder.ins().call(malloc, &[size]);
+                    let heap_ptr = builder.inst_results(ptr_ins)[0];
 
-                heap_ptr
-            }
-            Type::Struct(_) => todo!(),
+                    builder.ins().call(copy, &[heap_ptr, cranelift_value, size]);
 
-            Type::Unit => todo!(),
-            Type::Float => todo!(),
-            Type::Enum(_) => todo!(),
-            Type::Function(_, _) => todo!(),
-        };
-        Ok(())
+                    heap_ptr
+                }
+                Type::Struct(_) => todo!(),
+
+                Type::Unit => todo!(),
+                Type::Float => todo!(),
+                Type::Enum(_) => todo!(),
+                Type::Function(_, _) => todo!(),
+            };
+            Ok(CitrusValue::Value {
+                cranelift_value: value,
+                r#type,
+                heap: true,
+            })
+        } else {
+            Ok(CitrusValue::Value {
+                cranelift_value,
+                r#type,
+                heap: true,
+            })
+        }
     } else {
+        Err(CompileError::InvalidHeapValue(val))
     }
 }
 
@@ -626,8 +657,7 @@ fn compile_expr(
     mut builder: &mut FunctionBuilder,
     mut scope: HashMap<String, CitrusValue>,
     obj_module: &mut ObjectModule,
-    malloc: FuncId,
-    free: FuncId,
+    functions: SystemFunctions,
 ) -> Result<(CitrusValue, HashMap<String, CitrusValue>), CompileError> {
     match expr {
         crate::types::TypedExpr::BinaryOp {
@@ -636,10 +666,16 @@ fn compile_expr(
             op,
             rhs,
         } => {
-            let lhs = compile_expr(*lhs, &mut builder, scope.clone(), obj_module, malloc, free)?
-                .0
-                .value(builder, obj_module)?;
-            let rhs = compile_expr(*rhs, &mut builder, scope.clone(), obj_module, malloc, free)?
+            let lhs = compile_expr(
+                *lhs,
+                &mut builder,
+                scope.clone(),
+                obj_module,
+                functions.clone(),
+            )?
+            .0
+            .value(builder, obj_module)?;
+            let rhs = compile_expr(*rhs, &mut builder, scope.clone(), obj_module, functions)?
                 .0
                 .value(builder, obj_module)?;
 
@@ -770,8 +806,7 @@ fn compile_expr(
                             builder,
                             scope.clone(),
                             obj_module,
-                            malloc,
-                            free,
+                            functions.clone(),
                         )?
                         .0
                         .value(builder, obj_module)?;
@@ -802,8 +837,7 @@ fn compile_expr(
                             builder,
                             scope.clone(),
                             obj_module,
-                            malloc,
-                            free,
+                            functions.clone(),
                         )?
                         .0
                         .value(builder, obj_module)?;
@@ -840,8 +874,7 @@ fn compile_expr(
                                 builder,
                                 scope.clone(),
                                 obj_module,
-                                malloc,
-                                free,
+                                functions.clone(),
                             )?
                             .0
                             .value(builder, obj_module)?,
@@ -876,7 +909,7 @@ fn compile_expr(
             }
         }
         crate::types::TypedExpr::Binding { lhs, rhs, .. } => {
-            let rhs = compile_expr(*rhs, builder, scope.clone(), obj_module, malloc, free)?.0;
+            let rhs = compile_expr(*rhs, builder, scope.clone(), obj_module, functions)?.0;
             scope.insert(lhs, rhs.clone());
             Ok((rhs, scope))
         }
@@ -886,10 +919,15 @@ fn compile_expr(
             then,
             r#else,
         } => {
-            let condition_value =
-                compile_expr(*condition, builder, scope.clone(), obj_module, malloc, free)?
-                    .0
-                    .value(builder, obj_module)?;
+            let condition_value = compile_expr(
+                *condition,
+                builder,
+                scope.clone(),
+                obj_module,
+                functions.clone(),
+            )?
+            .0
+            .value(builder, obj_module)?;
 
             let then_block = builder.create_block();
             let else_block = builder.create_block();
@@ -905,7 +943,7 @@ fn compile_expr(
             builder.seal_block(then_block);
 
             let then_return =
-                compile_block(then, builder, obj_module, scope.clone(), malloc, free)?
+                compile_block(then, builder, obj_module, scope.clone(), functions.clone())?
                     .value(builder, obj_module)?;
             builder.ins().jump(merge_block, &[then_return]);
             //let else_return = compile_block(r#else, builder, else_block, obj_module, scope.clone())?;
@@ -914,7 +952,7 @@ fn compile_expr(
             builder.seal_block(else_block);
 
             let r#else_return =
-                compile_block(r#else, builder, obj_module, scope.clone(), malloc, free)?
+                compile_block(r#else, builder, obj_module, scope.clone(), functions)?
                     .value(builder, obj_module)?;
             builder.ins().jump(merge_block, &[else_return]);
 
@@ -938,8 +976,7 @@ fn compile_expr(
             lhs,
             rhs,
         } => {
-            let (new_value, _) =
-                compile_expr(*rhs, builder, scope.clone(), obj_module, malloc, free)?;
+            let (new_value, _) = compile_expr(*rhs, builder, scope.clone(), obj_module, functions)?;
             if let Some(old) = scope.get_mut(&lhs) {
                 *old = new_value.clone();
                 Ok((new_value, scope))
@@ -949,10 +986,9 @@ fn compile_expr(
         }
         TypedExpr::Access(r#type, r#struct, index) => {
             // let pairs =
-            let r#struct =
-                compile_expr(*r#struct, builder, scope.clone(), obj_module, malloc, free)?
-                    .0
-                    .value(builder, obj_module)?;
+            let r#struct = compile_expr(*r#struct, builder, scope.clone(), obj_module, functions)?
+                .0
+                .value(builder, obj_module)?;
             let index = builder.ins().iconst(I64, (index * 8) as i64);
             let ptr = builder.ins().iadd(r#struct, index);
             Ok((

@@ -7,12 +7,15 @@ extern void printint(int64_t);
 extern void printstr(int64_t *);
 extern int64_t index(int64_t *, int64_t);
 extern void setindex(int64_t *, int64_t, int64_t);
+extern int64_t copy(int64_t *, int64_t *, int64_t)
 
 void printstr(int64_t *str) {
     int64_t len = str[0];
+    printf("len: %d\n", len);
     for (int i = 0; i < len; i++) {
         int64_t c = *(str + (8 * (i + 1)));
-        printf("%c", c);
+        printf("%d", c);
+        printf("%c   ", c);
     }
     printf("\n");
 }
@@ -32,15 +35,10 @@ int64_t index(int64_t *arr, int64_t i) {
 void setindex(int64_t *arr, int64_t i, int64_t val) {
     *(arr + (8 * (i + 1))) = val;
 }
-// void *ptr(int64_t v) {
-// 	int64_t *n = malloc(8);
-// 	printf("number: %d", n);
-// 	printf("contained: %d", v);
-// 	return n;
-// }
-
-// int main() {
-// 	void *pointer = ptr();
+int64_t copy(int64_t *a, int64_t *b, int64_t c) {
+    printf("size: %d\n", c);
+    return memcpy(a, b, c);
+}
 //
 // 	printnum(pointer);
 //
