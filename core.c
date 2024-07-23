@@ -36,7 +36,7 @@ void setindex(int64_t *arr, int64_t i, int64_t val) {
 }
 int64_t copy(int64_t *a, int64_t *b, int64_t c) {
     printf("size: %d\n", c);
-    return memcpy(a, b, c);
+    return (int64_t)memcpy(a, b, c);
 }
 //
 // 	printnum(pointer);
