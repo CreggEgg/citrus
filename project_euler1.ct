@@ -1,0 +1,20 @@
+alias string = [int];
+extern printstr: fn(string): unit;
+extern printint: fn(int): unit;
+
+let sum_to = fn(a: int): int {
+    let ugly_hack = a + 1;
+    let num = a * ugly_hack;
+    num/2
+};
+
+let three_five_sum = fn(a: int): int {
+    let a = a - 1;
+
+    sum_to(a/3) * 3 + sum_to(a/5) * 5 - sum_to(a/15) * 15
+};
+
+let main = fn() {
+    printstr("result: ");
+    printint(three_five_sum(1000))
+};
