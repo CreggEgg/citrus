@@ -7,7 +7,9 @@ use std::{
 
 use cranelift::{
     codegen::{
-        ir::{stackslot::StackSize, types::I64, AbiParam, Function, Signature, UserFuncName},
+        ir::{
+            stackslot::StackSize, types::I64, AbiParam, FuncRef, Function, Signature, UserFuncName,
+        },
         isa::{self, x64::args::CC},
         settings::{self, Configurable},
     },
@@ -39,6 +41,12 @@ enum Lifetime {
     Stack,
 }
 
+struct SystemFunctions {
+    malloc: FuncId,
+    free: FuncId,
+    copy: FuncId,
+}
+
 impl Into<Option<u32>> for Lifetime {
     fn into(self) -> Option<u32> {
         match self {
@@ -53,7 +61,7 @@ enum CitrusValue {
     Value {
         cranelift_value: Value,
         r#type: crate::types::Type,
-        // lifetime: Lifetime,
+        heap: bool,
     },
     Global {
         data_id: DataId,
@@ -84,7 +92,7 @@ impl CitrusValue {
             CitrusValue::Value {
                 cranelift_value,
                 r#type,
-                // lifetime,
+                heap,
             } => Ok(cranelift_value.clone()),
             CitrusValue::Global { data_id, r#type } => {
                 let global_value_ref = obj_module.declare_data_in_func(*data_id, builder.func);
@@ -353,7 +361,7 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
                 CitrusValue::Value {
                     cranelift_value: params[i],
                     r#type: arg.r#type.clone(),
-                    // lifetime: -1,
+                    heap: false,
                 },
             );
         }
@@ -367,6 +375,8 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
             &mut function_builder,
             &mut obj_module,
             scope.clone(),
+            mallocfid,
+            freefid,
         )?
         .value(&mut function_builder, &mut obj_module)?];
         function_builder
@@ -436,24 +446,77 @@ fn compile_block(
     function_builder: &mut FunctionBuilder<'_>,
     obj_module: &mut ObjectModule,
     mut scope: HashMap<String, CitrusValue>,
+    malloc: FuncId,
+    free: FuncId,
 ) -> Result<CitrusValue, CompileError> {
     let mut ret = None;
     let zero = function_builder.ins().iconst(I64, 0);
     for (i, expr) in body.iter().enumerate() {
         // println!("Compiling expression");
-        let (val, newscope) =
-            compile_expr(expr.clone(), function_builder, scope.clone(), obj_module)?;
+        let (val, newscope) = compile_expr(
+            expr.clone(),
+            function_builder,
+            scope.clone(),
+            obj_module,
+            malloc,
+            free,
+        )?;
         scope = newscope;
 
         if i == body.len() - 1 {
-            ret = Some(val);
+            ret = Some(move_to_heap(val));
+        }
+    }
+    let free = obj_module.declare_func_in_func(free, function_builder.func);
+    for (name, value) in scope {
+        if let CitrusValue::Value {
+            cranelift_value,
+            r#type,
+            heap: true,
+        } = value
+        {
+            function_builder.ins().call(free, &[cranelift_value]);
         }
     }
     Ok(ret.unwrap_or(CitrusValue::Value {
         cranelift_value: zero,
         r#type: Type::Unit,
-        // lifetime: Lifetime::Stack,
+        heap: false,
     }))
+}
+
+fn move_to_heap(
+    val: CitrusValue,
+    malloc: FuncRef,
+    builder: &mut FunctionBuilder,
+) -> Result<CitrusValue, CompileError> {
+    if let CitrusValue::Value {
+        cranelift_value,
+        r#type,
+        heap: false,
+    } = val
+    {
+        let value = match r#type {
+            Type::Int | Type::Bool => cranelift_value,
+            Type::Array(value) => {
+                let len = builder.ins().load(I64, MemFlags::new(), cranelift_value, 0);
+                let eight = builder.ins().iconst(I64, 8);
+                let size = builder.ins().imul(len, eight);
+                let ptr_ins = builder.ins().call(malloc, &[size]);
+                let heap_ptr = builder.inst_results(ptr_ins)[0];
+
+                heap_ptr
+            }
+            Type::Struct(_) => todo!(),
+
+            Type::Unit => todo!(),
+            Type::Float => todo!(),
+            Type::Enum(_) => todo!(),
+            Type::Function(_, _) => todo!(),
+        };
+        Ok(())
+    } else {
+    }
 }
 
 fn compile_global(
@@ -525,20 +588,20 @@ fn compile_global(
             Ok(CitrusValue::Value {
                 cranelift_value: val,
                 r#type,
-                // storage_location: StorageLocation::Heap,
+                heap: false,
             })
         }
         TypedExpr::Literal(r#type, literal) => match literal {
             TypedLiteral::Int(int) => Ok(CitrusValue::Value {
                 cranelift_value: builder.ins().iconst(I64, int as i64),
                 r#type,
-                // storage_location: StorageLocation::Heap,
+                heap: false, // storage_location: StorageLocation::Heap,
             }),
 
             TypedLiteral::Bool(x) => Ok(CitrusValue::Value {
                 cranelift_value: builder.ins().iconst(I64, if x { 1 } else { 0 }),
                 r#type,
-                // storage_location: StorageLocation::Heap,
+                heap: false, // storage_location: StorageLocation::Heap,
             }),
             TypedLiteral::String(_) => todo!(),
             TypedLiteral::Function { .. } => unreachable!(),
@@ -551,11 +614,20 @@ fn compile_global(
     }
 }
 
+fn lifetime(exclave: bool) -> Lifetime {
+    if exclave {
+        Lifetime::Heap(1)
+    } else {
+        Lifetime::Stack
+    }
+}
 fn compile_expr(
     expr: crate::types::TypedExpr,
     mut builder: &mut FunctionBuilder,
     mut scope: HashMap<String, CitrusValue>,
     obj_module: &mut ObjectModule,
+    malloc: FuncId,
+    free: FuncId,
 ) -> Result<(CitrusValue, HashMap<String, CitrusValue>), CompileError> {
     match expr {
         crate::types::TypedExpr::BinaryOp {
@@ -564,10 +636,10 @@ fn compile_expr(
             op,
             rhs,
         } => {
-            let lhs = compile_expr(*lhs, &mut builder, scope.clone(), obj_module)?
+            let lhs = compile_expr(*lhs, &mut builder, scope.clone(), obj_module, malloc, free)?
                 .0
                 .value(builder, obj_module)?;
-            let rhs = compile_expr(*rhs, &mut builder, scope.clone(), obj_module)?
+            let rhs = compile_expr(*rhs, &mut builder, scope.clone(), obj_module, malloc, free)?
                 .0
                 .value(builder, obj_module)?;
 
@@ -576,72 +648,74 @@ fn compile_expr(
                     crate::ast::BinaryOperator::Add => CitrusValue::Value {
                         cranelift_value: builder.ins().iadd(lhs, rhs),
                         r#type,
-                        // storage_location: StorageLocation::Stack,
+                        heap: false, // storage_location: StorageLocation::Stack,
                     },
                     crate::ast::BinaryOperator::Subtract => CitrusValue::Value {
                         cranelift_value: builder.ins().isub(lhs, rhs),
                         r#type,
-                        // storage_location: StorageLocation::Stack,
+                        heap: false, // storage_location: StorageLocation::Stack,
                     },
                     crate::ast::BinaryOperator::Multiply => CitrusValue::Value {
                         cranelift_value: builder.ins().imul(lhs, rhs),
                         r#type,
-                        // storage_location: StorageLocation::Stack,
+                        heap: false, // storage_location: StorageLocation::Stack,
                     },
 
                     crate::ast::BinaryOperator::Divide => CitrusValue::Value {
                         cranelift_value: builder.ins().sdiv(lhs, rhs),
                         r#type,
-                        // storage_location: StorageLocation::Stack,
+                        heap: false, // storage_location: StorageLocation::Stack,
                     },
                     crate::ast::BinaryOperator::Power => todo!(),
                     crate::ast::BinaryOperator::Gt => CitrusValue::Value {
                         cranelift_value: cmp(IntCC::SignedGreaterThan, lhs, rhs, builder),
                         r#type,
-                        // storage_location: StorageLocation::Stack,
+                        heap: false, // storage_location: StorageLocation::Stack,
                     },
                     crate::ast::BinaryOperator::Lt => CitrusValue::Value {
                         cranelift_value: cmp(IntCC::SignedLessThan, lhs, rhs, builder),
 
                         r#type,
-                        // storage_location: StorageLocation::Stack,
+                        heap: false, // storage_location: StorageLocation::Stack,
                     },
                     crate::ast::BinaryOperator::Gte => CitrusValue::Value {
                         cranelift_value: cmp(IntCC::SignedGreaterThanOrEqual, lhs, rhs, builder),
 
                         r#type,
-                        // storage_location: StorageLocation::Stack,
+                        heap: false, // storage_location: StorageLocation::Stack,
+                                     //
                     },
 
                     crate::ast::BinaryOperator::Lte => CitrusValue::Value {
                         cranelift_value: cmp(IntCC::SignedLessThanOrEqual, lhs, rhs, builder),
 
                         r#type,
-                        // storage_location: StorageLocation::Stack,
+                        heap: false, // storage_location: StorageLocation::Stack,
                     },
                     crate::ast::BinaryOperator::Eq => CitrusValue::Value {
                         cranelift_value: cmp(IntCC::Equal, lhs, rhs, builder),
 
                         r#type,
-                        // storage_location: StorageLocation::Stack,
+                        heap: false, // storage_location: StorageLocation::Stack,
                     },
                     crate::ast::BinaryOperator::And => CitrusValue::Value {
                         cranelift_value: builder.ins().band(lhs, rhs),
 
                         r#type,
-                        // storage_location: StorageLocation::Stack,
+                        heap: false, // storage_location: StorageLocation::Stack,
                     },
                     crate::ast::BinaryOperator::Or => CitrusValue::Value {
                         cranelift_value: builder.ins().bor(lhs, rhs),
 
                         r#type,
-                        // storage_location: StorageLocation::Stack,
+                        heap: false, // storage_location: StorageLocation::Stack,
+                                     //
                     },
                     crate::ast::BinaryOperator::Modulo => CitrusValue::Value {
                         cranelift_value: builder.ins().srem(lhs, rhs),
 
                         r#type,
-                        // storage_location: StorageLocation::Stack,
+                        heap: false, // storage_location: StorageLocation::Stack,
                     },
                 },
                 scope,
@@ -652,7 +726,7 @@ fn compile_expr(
                 TypedLiteral::Int(x) => CitrusValue::Value {
                     cranelift_value: builder.ins().iconst(I64, x as i64),
                     r#type,
-                    // storage_location: StorageLocation::Stack,
+                    heap: false, // storage_location: StorageLocation::Stack,
                 },
                 TypedLiteral::String(string) => {
                     let stack_slot = builder.create_sized_stack_slot(StackSlotData::new(
@@ -672,12 +746,14 @@ fn compile_expr(
                     CitrusValue::Value {
                         cranelift_value: addr,
                         r#type: Type::Array(Box::new(Type::Int)),
+                        heap: false,
                     }
                 }
                 TypedLiteral::Function { .. } => todo!(),
                 TypedLiteral::Bool(value) => CitrusValue::Value {
                     cranelift_value: builder.ins().iconst(I64, if value { 1 } else { 0 }),
                     r#type: Type::Bool,
+                    heap: false,
                 },
                 TypedLiteral::Array(vals) => {
                     let stack_slot = builder.create_sized_stack_slot(StackSlotData::new(
@@ -689,9 +765,16 @@ fn compile_expr(
                     builder.ins().store(MemFlags::new(), len, addr, 0);
 
                     for (i, val) in vals.iter().enumerate() {
-                        let val = compile_expr(val.clone(), builder, scope.clone(), obj_module)?
-                            .0
-                            .value(builder, obj_module)?;
+                        let val = compile_expr(
+                            val.clone(),
+                            builder,
+                            scope.clone(),
+                            obj_module,
+                            malloc,
+                            free,
+                        )?
+                        .0
+                        .value(builder, obj_module)?;
                         builder
                             .ins()
                             .store(MemFlags::new(), val, addr, (i + 1) as i32 * 64);
@@ -699,6 +782,7 @@ fn compile_expr(
                     CitrusValue::Value {
                         cranelift_value: addr,
                         r#type: Type::Array(Box::new(Type::Int)),
+                        heap: false,
                     }
                 }
                 TypedLiteral::Struct(r#type, pairs) => {
@@ -713,9 +797,16 @@ fn compile_expr(
                     builder.ins().store(MemFlags::new(), len, addr, 0);
 
                     for (i, (_, val)) in pairs.iter().enumerate() {
-                        let val = compile_expr(val.clone(), builder, scope.clone(), obj_module)?
-                            .0
-                            .value(builder, obj_module)?;
+                        let val = compile_expr(
+                            val.clone(),
+                            builder,
+                            scope.clone(),
+                            obj_module,
+                            malloc,
+                            free,
+                        )?
+                        .0
+                        .value(builder, obj_module)?;
                         builder
                             .ins()
                             .store(MemFlags::new(), val, addr, (i + 1) as i32 * 64);
@@ -723,6 +814,7 @@ fn compile_expr(
                     CitrusValue::Value {
                         cranelift_value: addr,
                         r#type,
+                        heap: false,
                     }
                 }
             },
@@ -743,9 +835,16 @@ fn compile_expr(
                     .iter()
                     .map(|expr| {
                         Ok::<cranelift::prelude::Value, CompileError>(
-                            compile_expr(expr.clone(), builder, scope.clone(), obj_module)?
-                                .0
-                                .value(builder, obj_module)?,
+                            compile_expr(
+                                expr.clone(),
+                                builder,
+                                scope.clone(),
+                                obj_module,
+                                malloc,
+                                free,
+                            )?
+                            .0
+                            .value(builder, obj_module)?,
                         )
                     })
                     .collect::<Result<Vec<Value>, CompileError>>()?;
@@ -756,6 +855,7 @@ fn compile_expr(
                         CitrusValue::Value {
                             cranelift_value: *ret,
                             r#type: r#type.clone(),
+                            heap: true,
                         },
                         scope,
                     ),
@@ -765,6 +865,7 @@ fn compile_expr(
                             CitrusValue::Value {
                                 cranelift_value: unit,
                                 r#type: Type::Unit,
+                                heap: false,
                             },
                             scope,
                         )
@@ -775,7 +876,7 @@ fn compile_expr(
             }
         }
         crate::types::TypedExpr::Binding { lhs, rhs, .. } => {
-            let rhs = compile_expr(*rhs, builder, scope.clone(), obj_module)?.0;
+            let rhs = compile_expr(*rhs, builder, scope.clone(), obj_module, malloc, free)?.0;
             scope.insert(lhs, rhs.clone());
             Ok((rhs, scope))
         }
@@ -785,9 +886,10 @@ fn compile_expr(
             then,
             r#else,
         } => {
-            let condition_value = compile_expr(*condition, builder, scope.clone(), obj_module)?
-                .0
-                .value(builder, obj_module)?;
+            let condition_value =
+                compile_expr(*condition, builder, scope.clone(), obj_module, malloc, free)?
+                    .0
+                    .value(builder, obj_module)?;
 
             let then_block = builder.create_block();
             let else_block = builder.create_block();
@@ -802,16 +904,18 @@ fn compile_expr(
 
             builder.seal_block(then_block);
 
-            let then_return = compile_block(then, builder, obj_module, scope.clone())?
-                .value(builder, obj_module)?;
+            let then_return =
+                compile_block(then, builder, obj_module, scope.clone(), malloc, free)?
+                    .value(builder, obj_module)?;
             builder.ins().jump(merge_block, &[then_return]);
             //let else_return = compile_block(r#else, builder, else_block, obj_module, scope.clone())?;
             builder.switch_to_block(else_block);
 
             builder.seal_block(else_block);
 
-            let r#else_return = compile_block(r#else, builder, obj_module, scope.clone())?
-                .value(builder, obj_module)?;
+            let r#else_return =
+                compile_block(r#else, builder, obj_module, scope.clone(), malloc, free)?
+                    .value(builder, obj_module)?;
             builder.ins().jump(merge_block, &[else_return]);
 
             builder.switch_to_block(merge_block);
@@ -823,6 +927,7 @@ fn compile_expr(
                 CitrusValue::Value {
                     cranelift_value: phi,
                     r#type,
+                    heap: false,
                 },
                 scope,
             ))
@@ -833,7 +938,8 @@ fn compile_expr(
             lhs,
             rhs,
         } => {
-            let (new_value, _) = compile_expr(*rhs, builder, scope.clone(), obj_module)?;
+            let (new_value, _) =
+                compile_expr(*rhs, builder, scope.clone(), obj_module, malloc, free)?;
             if let Some(old) = scope.get_mut(&lhs) {
                 *old = new_value.clone();
                 Ok((new_value, scope))
@@ -843,15 +949,17 @@ fn compile_expr(
         }
         TypedExpr::Access(r#type, r#struct, index) => {
             // let pairs =
-            let r#struct = compile_expr(*r#struct, builder, scope.clone(), obj_module)?
-                .0
-                .value(builder, obj_module)?;
+            let r#struct =
+                compile_expr(*r#struct, builder, scope.clone(), obj_module, malloc, free)?
+                    .0
+                    .value(builder, obj_module)?;
             let index = builder.ins().iconst(I64, (index * 8) as i64);
             let ptr = builder.ins().iadd(r#struct, index);
             Ok((
                 CitrusValue::Value {
                     cranelift_value: builder.ins().load(I64, MemFlags::new(), ptr, 0),
                     r#type,
+                    heap: false,
                 },
                 scope,
             ))

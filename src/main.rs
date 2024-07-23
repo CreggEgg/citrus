@@ -1,7 +1,7 @@
 #![warn(clippy::pedantic, clippy::nursery, clippy::cargo)]
 use std::{fs, path::Path};
 
-use clap::{command, Command, Parser};
+use clap::{command, Parser};
 
 mod ast;
 mod compiler;
