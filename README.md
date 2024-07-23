@@ -41,6 +41,18 @@ let main = fn() {
 	printint(handle); 
 };
 ```
+```
+alias string = [int];
+extern printstr: fn(string): unit;
+extern printint: fn(int): unit;
+extern index: fn([int], int): int;
+
+let main = fn() {
+	let x = [64, 65, 64];
+	printint(index(x, 1));
+	printstr(x)
+};
+```
 
 ## Usage
 To install the citrus compiler first install cargo (rust's package manager) and then run `cargo install --git https://github.com/creggegg/citrus`
