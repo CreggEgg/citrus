@@ -1,9 +1,6 @@
-use std::ops::Range;
-use std::usize;
-
 use lalrpop_util::lalrpop_mod;
 
-use super::{File, TopLevelDeclaration};
+use super::TopLevelDeclaration;
 
 // #[derive(Debug)]
 // pub enum ParseError {
