@@ -31,38 +31,60 @@ StructExprPair: (String, UntypedExpr) = <i: Ident> ":" <e: Expr> => (i, e);
 
 Block: Vec<UntypedExpr> = Semicolon<Expr> => <>;
 Expr: UntypedExpr = {
-	#[precedence(level="11")]
-	<l: Expr> "::" <i: Ident> => UntypedExpr::Access(Box::new(l), i),
-	#[precedence(level="10")]
-	"let" <l: "local"?> <i: Ident> "="  <e: Expr> => UntypedExpr::Binding {lhs: i, local: l.is_some(), rhs: Box::new(e)},
-	#[precedence(level="9")]
-	<i: Ident> "="  <e: Expr> => UntypedExpr::Mutate {lhs: i, rhs: Box::new(e)},
 	#[precedence(level="0")]
-	Literal => UntypedExpr::Literal(<>),
-	#[precedence(level="2")] #[assoc(side="left")]
+    <a: Atom> => a,
+
+	#[precedence(level="1")] #[assoc(side="left")]
+	<l: Expr> "::" <i: Ident> => UntypedExpr::Access(Box::new(l), i),
+	<i: Ident> <a: FunctionArgs> => UntypedExpr::FunctionCall(i, a),
+
+    #[precedence(level="2")] #[assoc(side="right")]
+	"!" <e: Expr> => UntypedExpr::UnaryOp {op: UnaryOperator::Not, target: Box::new(e)},
+	"-" <e: Expr> => UntypedExpr::UnaryOp {op: UnaryOperator::Negative, target: Box::new(e)},
+
+    #[precedence(level="3")] #[assoc(side="left")]
+	<l: Expr> "*" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Multiply, rhs: Box::new(r)},
+	<l: Expr> "/" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Divide, rhs: Box::new(r)},
+	<l: Expr> "%" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Modulo, rhs: Box::new(r)},
+
+    #[precedence(level="4")] #[assoc(side="left")]
 	<l: Expr> "+" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Add, rhs: Box::new(r)},
 	<l: Expr> "-" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Subtract, rhs: Box::new(r)},
+
+    #[precedence(level="5")] #[assoc(side="left")]
 	<l: Expr> ">" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Gt, rhs: Box::new(r)},
 	<l: Expr> "<" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Lt, rhs: Box::new(r)},
 	<l: Expr> ">=" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Gte, rhs: Box::new(r)},
 	<l: Expr> "<=" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Lte, rhs: Box::new(r)},
-	<l: Expr> "%" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Modulo, rhs: Box::new(r)},
-	#[precedence(level="3")] #[assoc(side="left")]
-	<l: Expr> "*" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Multiply, rhs: Box::new(r)},
-	<l: Expr> "/" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Divide, rhs: Box::new(r)},
+    
+    #[precedence(level="6")] #[assoc(side="left")]
 	<l: Expr> "==" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Eq, rhs: Box::new(r)},
+	<l: Expr> "!=" <r: Expr> => UntypedExpr::UnaryOp 
+        {op: UnaryOperator::Negative, 
+         target: Box::new(UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Eq, rhs: Box::new(r)})
+        },
+
+    #[precedence(level="7")] #[assoc(side="left")]
 	<l: Expr> "&&" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::And, rhs: Box::new(r)},
+
+    #[precedence(level="8")] #[assoc(side="left")]
 	<l: Expr> "||" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Or, rhs: Box::new(r)},
-	#[precedence(level="5")]
-	<i: Ident> <a: FunctionArgs> => UntypedExpr::FunctionCall(i, a),
-	#[precedence(level="1")] #[assoc(side="left")]
-	<i: Ident> => UntypedExpr::Ident(i),
-	"if" <c: Expr> "{" <t: Block> "}" "else" "{" <e: Block> "}" => UntypedExpr::IfElse { condition: Box::new(c), then: t, r#else: e},
-	#[precedence(level="4")]
+
+    #[precedence(level="9")] #[assoc(side="right")]
 	"@" <e: Expr> => UntypedExpr::UnaryOp {op: UnaryOperator::Exclave, target: Box::new(e)},
-	"!" <e: Expr> => UntypedExpr::UnaryOp {op: UnaryOperator::Not, target: Box::new(e)},
-	"-" <e: Expr> => UntypedExpr::UnaryOp {op: UnaryOperator::Negative, target: Box::new(e)},
+    
+    #[precedence(level="10")] #[assoc(side="right")]
+	"if" <c: Expr> "{" <t: Block> "}" "else" "{" <e: Block> "}" => UntypedExpr::IfElse { condition: Box::new(c), then: t, r#else: e},
+	"let" <l: "local"?> <i: Ident> "="  <e: Expr> => UntypedExpr::Binding {lhs: i, local: l.is_some(), rhs: Box::new(e)},
+	<i: Ident> "="  <e: Expr> => UntypedExpr::Mutate {lhs: i, rhs: Box::new(e)},
 }
+
+Atom: UntypedExpr = {
+    <i: Ident> => UntypedExpr::Ident(i),
+    Literal => UntypedExpr::Literal(<>),
+    "(" <i: Expr> ")" => i,
+}
+
 Annotation: TypeName = ":" <i: Type> => i; 
 FunctionArgs: Vec<UntypedExpr> = "(" <a: Comma<Expr>> ")" => a;
 Ident: String = r"[a-zA-Z_]+" => <>.to_owned();
