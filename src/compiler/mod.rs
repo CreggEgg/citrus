@@ -182,10 +182,10 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
         .declare_function("malloc", Linkage::Import, &signature)
         .unwrap();
 
-    signature.params.push(AbiParam::new(I64));
     let freefid = obj_module
         .declare_function("free", Linkage::Import, &signature)
         .unwrap();
+    signature.params.push(AbiParam::new(I64));
     signature.params.push(AbiParam::new(I64));
     let copyfid = obj_module
         .declare_function("memcpy", Linkage::Import, &signature)
