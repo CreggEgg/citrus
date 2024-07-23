@@ -19,8 +19,8 @@ use cranelift_object::{ObjectBuilder, ObjectModule};
 use target_lexicon::Triple;
 
 use crate::{
-    ast::{Literal, UnaryOperator},
-    types::{self, AnnotatedIdent, Type, TypedExpr, TypedLiteral, TypedTopLevelDeclaration},
+    ast::UnaryOperator,
+    types::{AnnotatedIdent, Type, TypedExpr, TypedLiteral, TypedTopLevelDeclaration},
 };
 
 #[derive(Debug)]
@@ -177,13 +177,13 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
     //end c stuff
     //
     //
-    let zero = main_function_builder.ins().iconst(I64, i64::from(0));
+    // let zero = main_function_builder.ins().iconst(I64, i64::from(0));
 
-    let eight = main_function_builder.ins().iconst(I64, i64::from(8));
-    let val = main_function_builder.ins().iconst(I64, i64::from(110));
+    // let eight = main_function_builder.ins().iconst(I64, i64::from(8));
+    // let val = main_function_builder.ins().iconst(I64, i64::from(110));
 
-    let malloc = obj_module.declare_func_in_func(mallocfid, main_function_builder.func);
-    let free = obj_module.declare_func_in_func(mallocfid, main_function_builder.func);
+    // let malloc = obj_module.declare_func_in_func(mallocfid, main_function_builder.func);
+    // let free = obj_module.declare_func_in_func(mallocfid, main_function_builder.func);
 
     // main_function_builder
     //     .ins()
@@ -192,7 +192,6 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
     //     .ins()
     //     .load(I64, MemFlags::new(), recv, 0);
 
-    let printnum = obj_module.declare_func_in_func(printfid, main_function_builder.func);
     // main_function_builder.ins().call(printnum, &[zero]);
 
     let mut scope = HashMap::new();
@@ -262,7 +261,7 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
                 }
             },
             TypedTopLevelDeclaration::Extern(AnnotatedIdent { name, r#type }) => {
-                if let Type::Function(args, ret) = &r#type {
+                if let Type::Function(args, _) = &r#type {
                     let mut signature = Signature::new(call_conv);
 
                     for _arg in args {
@@ -366,7 +365,6 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
         let block_return = [compile_block(
             body.clone(),
             &mut function_builder,
-            entry,
             &mut obj_module,
             scope.clone(),
         )?
@@ -391,7 +389,7 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
         main_fn.expect("No \"main\" function defined"),
         main_function_builder.func,
     );
-    let ret = main_function_builder.ins().call(main, &[]);
+    main_function_builder.ins().call(main, &[]);
     // let ret = main_function_builder.inst_results(ret)[0];
 
     main_function_builder.ins().return_(&[]);
@@ -436,7 +434,6 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
 fn compile_block(
     body: Vec<TypedExpr>,
     function_builder: &mut FunctionBuilder<'_>,
-    entry: Block,
     obj_module: &mut ObjectModule,
     mut scope: HashMap<String, CitrusValue>,
 ) -> Result<CitrusValue, CompileError> {
@@ -544,22 +541,14 @@ fn compile_global(
                 // storage_location: StorageLocation::Heap,
             }),
             TypedLiteral::String(_) => todo!(),
-            TypedLiteral::Function {
-                args,
-                body,
-                ret_type,
-            } => unreachable!(),
+            TypedLiteral::Function { .. } => unreachable!(),
             TypedLiteral::Array(_) => todo!(),
             TypedLiteral::Struct(_, _) => todo!(),
         },
         TypedExpr::Ident(_, _) => todo!(),
-        TypedExpr::UnaryOp { r#type, op, target } => todo!(),
+        TypedExpr::UnaryOp { .. } => todo!(),
         TypedExpr::Access(_, _, _) => todo!(),
     }
-}
-
-fn compile_function(call_conv: isa::CallConv, ptr_ty: Type) -> Function {
-    todo!()
 }
 
 fn compile_expr(
@@ -685,11 +674,7 @@ fn compile_expr(
                         r#type: Type::Array(Box::new(Type::Int)),
                     }
                 }
-                TypedLiteral::Function {
-                    args,
-                    body,
-                    ret_type,
-                } => todo!(),
+                TypedLiteral::Function { .. } => todo!(),
                 TypedLiteral::Bool(value) => CitrusValue::Value {
                     cranelift_value: builder.ins().iconst(I64, if value { 1 } else { 0 }),
                     r#type: Type::Bool,
@@ -743,7 +728,7 @@ fn compile_expr(
             },
             scope,
         )),
-        crate::types::TypedExpr::Ident(r#type, name) => scope
+        crate::types::TypedExpr::Ident(_, name) => scope
             .get(&name)
             .ok_or(CompileError::UndefinedValue(name))
             .cloned()
@@ -789,12 +774,7 @@ fn compile_expr(
                 Err(CompileError::CallOnNonFunction(func.r#type().clone()))
             }
         }
-        crate::types::TypedExpr::Binding {
-            r#type,
-            lhs,
-            rhs,
-            local,
-        } => {
+        crate::types::TypedExpr::Binding { lhs, rhs, .. } => {
             let rhs = compile_expr(*rhs, builder, scope.clone(), obj_module)?.0;
             scope.insert(lhs, rhs.clone());
             Ok((rhs, scope))
@@ -822,7 +802,7 @@ fn compile_expr(
 
             builder.seal_block(then_block);
 
-            let then_return = compile_block(then, builder, then_block, obj_module, scope.clone())?
+            let then_return = compile_block(then, builder, obj_module, scope.clone())?
                 .value(builder, obj_module)?;
             builder.ins().jump(merge_block, &[then_return]);
             //let else_return = compile_block(r#else, builder, else_block, obj_module, scope.clone())?;
@@ -830,9 +810,8 @@ fn compile_expr(
 
             builder.seal_block(else_block);
 
-            let r#else_return =
-                compile_block(r#else, builder, else_block, obj_module, scope.clone())?
-                    .value(builder, obj_module)?;
+            let r#else_return = compile_block(r#else, builder, obj_module, scope.clone())?
+                .value(builder, obj_module)?;
             builder.ins().jump(merge_block, &[else_return]);
 
             builder.switch_to_block(merge_block);
@@ -848,8 +827,12 @@ fn compile_expr(
                 scope,
             ))
         }
-        crate::types::TypedExpr::UnaryOp { r#type, op, target } => todo!(),
-        crate::types::TypedExpr::Mutate { r#type, lhs, rhs } => {
+        crate::types::TypedExpr::UnaryOp { .. } => todo!(),
+        crate::types::TypedExpr::Mutate {
+            r#type: _,
+            lhs,
+            rhs,
+        } => {
             let (new_value, _) = compile_expr(*rhs, builder, scope.clone(), obj_module)?;
             if let Some(old) = scope.get_mut(&lhs) {
                 *old = new_value.clone();
@@ -858,29 +841,6 @@ fn compile_expr(
                 Err(CompileError::UndefinedValue(lhs))
             }
         }
-        TypedExpr::BinaryOp {
-            r#type,
-            lhs,
-            op,
-            rhs,
-        } => todo!(),
-        TypedExpr::Literal(_, _) => todo!(),
-        TypedExpr::Ident(_, _) => todo!(),
-        TypedExpr::FunctionCall(_, _, _) => todo!(),
-        TypedExpr::Binding {
-            r#type,
-            lhs,
-            rhs,
-            local,
-        } => todo!(),
-        TypedExpr::IfElse {
-            r#type,
-            condition,
-            then,
-            r#else,
-        } => todo!(),
-        TypedExpr::UnaryOp { r#type, op, target } => todo!(),
-        TypedExpr::Mutate { r#type, lhs, rhs } => todo!(),
         TypedExpr::Access(r#type, r#struct, index) => {
             // let pairs =
             let r#struct = compile_expr(*r#struct, builder, scope.clone(), obj_module)?
