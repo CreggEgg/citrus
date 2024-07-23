@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     fs::{self, File},
     path::Path,
-    process::Command,
+    process::{Command, ExitStatus},
 };
 
 use cranelift::{
@@ -453,6 +453,9 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
         .args(["./tmp/main.o", "./tmp/core.c", "-o", path.to_str().unwrap()])
         .output()
         .expect("Failed to link");
+    if !gcc_out.status.success() {
+        println!("{}", String::from_utf8_lossy(&gcc_out.stderr));
+    }
     #[cfg(debug_assertions)]
     println!("{}", String::from_utf8_lossy(&gcc_out.stderr));
     fs::remove_dir_all("./tmp").unwrap();
