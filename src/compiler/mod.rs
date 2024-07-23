@@ -448,11 +448,13 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
     dbg!(Path::new("./").canonicalize().unwrap());
     let mut path = Path::new("./").canonicalize().unwrap();
     path.push(Path::new("out/main"));
-    Command::new("gcc")
+    let gcc_out = Command::new("gcc")
         .current_dir(Path::new("./").canonicalize().unwrap())
         .args(["./tmp/main.o", "./tmp/core.c", "-o", path.to_str().unwrap()])
         .output()
         .expect("Failed to link");
+    #[cfg(debug_assertions)]
+    println!("{}", String::from_utf8_lossy(&gcc_out.stderr));
     fs::remove_dir_all("./tmp").unwrap();
     Ok(())
 }

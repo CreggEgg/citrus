@@ -18,6 +18,7 @@ pub enum TypeError {
     InconsistentArrayValues(Type, Type),
     AccessOnNonStruct(Type),
     MissingKey(String),
+    MismatchedMutation(String, Type, Type),
 }
 
 pub fn type_file(ast: File) -> Result<TypedFile, TypeError> {
@@ -316,6 +317,15 @@ fn type_expr(
             let rhs = type_expr(*rhs, types, scope)?;
             let mut body_scope = scope.clone();
             body_scope.insert(lhs.clone(), get_type(rhs.0.clone()));
+            if let Some(r#type) = scope.get(&lhs) {
+                if *r#type != get_type(rhs.0.clone()) {
+                    return Err(TypeError::MismatchedMutation(
+                        lhs,
+                        r#type.clone(),
+                        get_type(rhs.0.clone()),
+                    ));
+                }
+            }
             Ok((
                 TypedExpr::Mutate {
                     r#type: get_type(rhs.0.clone()),
