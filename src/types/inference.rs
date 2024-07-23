@@ -1,4 +1,4 @@
-use std::{any::Any, clone, collections::HashMap, usize};
+use std::{any::Any, clone, collections::HashMap, thread, usize};
 
 use crate::ast::{
     AnnotatedIdent, File, Literal, TopLevelDeclaration, TypeDeclaration, TypeName, UntypedExpr,
@@ -245,65 +245,73 @@ fn type_expr(
                 scope.clone(),
             ))
         }
-        crate::ast::UntypedExpr::UnaryOp { op, ref target } => match op {
-            crate::ast::UnaryOperator::Positive => Ok((
-                TypedExpr::UnaryOp {
-                    r#type: require_type(type_expr(*target.clone(), types, scope)?.0, Type::Int)?,
-                    op,
-                    target: Box::new(type_expr(expr, types, scope)?.0),
-                },
-                scope.clone(),
-            )),
-            crate::ast::UnaryOperator::Negative => Ok((
-                TypedExpr::UnaryOp {
-                    r#type: require_type(type_expr(*target.clone(), types, scope)?.0, Type::Int)?,
-                    op,
-                    target: Box::new(type_expr(expr, types, scope)?.0),
-                },
-                scope.clone(),
-            )),
-            crate::ast::UnaryOperator::Exclave => {
-                let (typed, scope) = type_expr(*target.clone(), types, scope)?;
-                // let r#type = match get_type(typed.clone()) {
-                //     // Type::Int => todo!(),
-                //     // Type::Float => todo!(),
-                //     // Type::Bool => todo!(),
-                //     // Type::Unit => todo!(),
-                //     // Type::Enum(_) => todo!(),
-                //     // Type::Array(_) => todo!(),
-                //     Type::Handle(ret) => Ok(*ret.clone()),
-                //     ty => Err(TypeError::IncorrectType(
-                //         Type::Handle(Box::new(Type::Unit)),
-                //         ty,
-                //     )), // Type::Struct(_) => todo!(),
-                // Type::Handle(_) => todo!(),
-                // };
-                Ok((
+        crate::ast::UntypedExpr::UnaryOp { op, ref target } => {
+            match op {
+                crate::ast::UnaryOperator::Positive => Ok((
                     TypedExpr::UnaryOp {
-                        r#type: get_type(typed.clone()),
+                        r#type: require_type(
+                            type_expr(*target.clone(), types, scope)?.0,
+                            Type::Int,
+                        )?,
                         op,
-                        target: Box::new(typed),
+                        target: Box::new(type_expr(*target.clone(), types, scope)?.0),
                     },
-                    scope,
-                ))
-            }
-            crate::ast::UnaryOperator::Not => {
-                let (typed, scope) = type_expr(*target.clone(), types, scope)?;
-                let r#type = get_type(typed.clone());
-                if r#type != Type::Bool {
-                    Err(TypeError::IncorrectType(r#type, Type::Bool))
-                } else {
+                    scope.clone(),
+                )),
+                crate::ast::UnaryOperator::Negative => Ok((
+                    TypedExpr::UnaryOp {
+                        r#type: require_type(
+                            type_expr(*target.clone(), types, scope)?.0,
+                            Type::Int,
+                        )?,
+                        op,
+                        target: Box::new(type_expr(*target.clone(), types, scope)?.0),
+                    },
+                    scope.clone(),
+                )),
+                crate::ast::UnaryOperator::Exclave => {
+                    let (typed, scope) = type_expr(*target.clone(), types, scope)?;
+                    // let r#type = match get_type(typed.clone()) {
+                    //     // Type::Int => todo!(),
+                    //     // Type::Float => todo!(),
+                    //     // Type::Bool => todo!(),
+                    //     // Type::Unit => todo!(),
+                    //     // Type::Enum(_) => todo!(),
+                    //     // Type::Array(_) => todo!(),
+                    //     Type::Handle(ret) => Ok(*ret.clone()),
+                    //     ty => Err(TypeError::IncorrectType(
+                    //         Type::Handle(Box::new(Type::Unit)),
+                    //         ty,
+                    //     )), // Type::Struct(_) => todo!(),
+                    // Type::Handle(_) => todo!(),
+                    // };
                     Ok((
                         TypedExpr::UnaryOp {
-                            r#type,
+                            r#type: get_type(typed.clone()),
                             op,
                             target: Box::new(typed),
                         },
                         scope,
                     ))
                 }
+                crate::ast::UnaryOperator::Not => {
+                    let (typed, scope) = type_expr(*target.clone(), types, scope)?;
+                    let r#type = get_type(typed.clone());
+                    if r#type != Type::Bool {
+                        Err(TypeError::IncorrectType(r#type, Type::Bool))
+                    } else {
+                        Ok((
+                            TypedExpr::UnaryOp {
+                                r#type,
+                                op,
+                                target: Box::new(typed),
+                            },
+                            scope,
+                        ))
+                    }
+                }
             }
-        },
+        }
         crate::ast::UntypedExpr::Mutate { lhs, rhs } => {
             let rhs = type_expr(*rhs, types, scope)?;
             let mut body_scope = scope.clone();

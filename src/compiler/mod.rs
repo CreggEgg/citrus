@@ -126,6 +126,7 @@ enum StorageLocation {
 }
 
 pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
+    println!("129");
     let mut settings_builder = settings::builder();
     settings_builder.enable("is_pic").unwrap();
     let flags = settings::Flags::new(settings_builder);
@@ -148,6 +149,7 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
     //
     // compile_function(call_conv, I64);
 
+    println!("152");
     let mut signature = Signature::new(call_conv);
 
     // signature.returns.push(AbiParam::new(I64));
@@ -165,6 +167,7 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
     main_function_builder.switch_to_block(entry);
     // c stuff
     let mut signature = Signature::new(call_conv);
+    println!("170");
 
     signature.params.push(AbiParam::new(I64));
     let printfid = obj_module
@@ -188,6 +191,7 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
         .declare_function("memcpy", Linkage::Import, &signature)
         .unwrap();
 
+    println!("193");
     //end c stuff
     //
     //
@@ -211,6 +215,7 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
     let mut scope = HashMap::new();
     let mut functions = Vec::new();
 
+    println!("218");
     for declaration in ast {
         match declaration {
             TypedTopLevelDeclaration::Binding { lhs, rhs } => match rhs {
@@ -222,7 +227,9 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
                         ret_type,
                     },
                 ) => {
+                    println!("about to push");
                     functions.push((lhs, args, body, ret_type));
+                    println!("just pushed");
                 }
                 expr => {
                     let val = compile_global(expr, &mut main_function_builder, &mut obj_module)?;

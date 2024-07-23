@@ -1,75 +1,12 @@
 alias string = [int];
 extern printstr: fn(string): unit;
 extern printint: fn(int): unit;
-extern setindex: fn([int],int,int): unit;
+extern getindex: fn([int], int): int;
+extern setindex: fn([int], int, int): unit;
 
-let isqrt_go = fn(a: int, s: int): int {
-    let a_ = (a + s / a) / 2;
-    
-    if a_ >= a {
-        a
-    } else {
-        isqrt_go(a_,s)
-    }
+let greeting = fn(str: string): string {
+	str
 };
-
-let isqrt = fn(a: int): int {
-    isqrt_go(a,a)
-};
-
-
-let gcd = fn(a: int,b:int): int {
-    if b > a {
-        gcd(b,a)
-    } else {
-        if b == 0 {
-            a
-        } else {
-            gcd(a, b % a)
-        }
-    }
-};
-
-let fraction_root_go = fn(cur_ind: int, list: [int], root_value: int, 
-                          numerator_plus: int, divisor: int, stop_at: int,
-                          len: int): int {
-    let an = (isqrt(root_value) + numerator_plus) / 2;
-
-    if an == stop_at {
-        cur_ind - 1
-    } else {
-        if cur_ind >= len {
-            printstr("value won't be correct becasue not enough array space was allocated");
-            -1
-        } else {
-            setindex(list,cur_ind,an);
-
-            let denom = (root_value - 
-                         numerator_plus * numerator_plus - 
-                         an * an * divisor * divisor + 
-                         2 * an * divisor * numerator_plus);
-
-            let gcd = gcd(divisor,denom);
-        }
-    }
-};
-
-
-let fraction_root = fn(a: int, list: [int], len: int): int {
-    let a_zero = isqrt(a);
-
-    setindex(a,0,a_zero);
-
-    if (a_zero * a_zero == a) {
-        0
-    } else {
-        fraction_root_go(1,list,a,a_zero,(a - a_zero * a_zero), a_zero * 2, len)
-    }
-};
-
 let main = fn() {
-    printint(isqrt(10));
-    printint(isqrt(100));
-    printint(isqrt(4));
-    printint(isqrt(201));
+	printstr("hello world")
 };
