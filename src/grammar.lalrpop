@@ -27,8 +27,12 @@ TopLevelBinding: TopLevelDeclaration = "let" <i: Ident> "=" <e: Expr> => TopLeve
 
 AnnotatedIdent: AnnotatedIdent = <i: Ident> ":" <t: Type> => AnnotatedIdent {name: i, type_name: t};
 
+StructExprPair: (String, UntypedExpr) = <i: Ident> ":" <e: Expr> => (i, e);
+
 Block: Vec<UntypedExpr> = Semicolon<Expr> => <>;
 Expr: UntypedExpr = {
+	#[precedence(level="11")]
+	<l: Expr> "::" <i: Ident> => UntypedExpr::Access(Box::new(l), i),
 	#[precedence(level="10")]
 	"let" <l: "local"?> <i: Ident> "="  <e: Expr> => UntypedExpr::Binding {lhs: i, local: l.is_some(), rhs: Box::new(e)},
 	#[precedence(level="9")]
@@ -68,8 +72,8 @@ Literal: Literal = {
 	"true" => Literal::Bool(true),
 	<s: r#"".+""#> => Literal::String(s[1..(s.len() - 1)].to_owned()),
 	"fn(" <a: Comma<AnnotatedIdent>> ")" <r: Annotation?> "{"<b: Block>"}" => Literal::Function {args: a, body: b,ret_type: r},
-	"[" <v: Comma<Expr>> "]" => Literal::Array(v)
-
+	"[" <v: Comma<Expr>> "]" => Literal::Array(v),
+	"{" <p: Comma<StructExprPair>>"}" => Literal::Struct(p)
 }
 
 Comma<T>: Vec<T> = { // (1)

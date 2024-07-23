@@ -1,4 +1,4 @@
-use std::{any::Any, clone, collections::HashMap};
+use std::{any::Any, clone, collections::HashMap, usize};
 
 use crate::ast::{
     AnnotatedIdent, File, Literal, TopLevelDeclaration, TypeDeclaration, TypeName, UntypedExpr,
@@ -16,6 +16,8 @@ pub enum TypeError {
     IncorrectType(Type, Type),
     UnmatchedTypes(Type, Type),
     InconsistentArrayValues(Type, Type),
+    AccessOnNonStruct(Type),
+    MissingKey(String),
 }
 
 pub fn type_file(ast: File) -> Result<TypedFile, TypeError> {
@@ -99,6 +101,7 @@ fn get_type(expr: super::TypedExpr) -> Type {
             lhs: _,
             rhs: _,
         } => r#type,
+        TypedExpr::Access(r#type, _, _) => r#type,
     }
 }
 
@@ -314,6 +317,37 @@ fn type_expr(
                 body_scope,
             ))
         }
+        UntypedExpr::Access(r#struct, field) => {
+            let lhs = type_expr(*r#struct, types, scope)?.0;
+            let struct_type = get_type(lhs.clone());
+            if let Type::Struct(pairs) = struct_type {
+                if let Some(value) = pairs.get(&field) {
+                    let mut pairs = pairs.iter().collect::<Vec<_>>();
+                    pairs.sort_by(|a, b| a.0.cmp(b.0));
+                    let idx = pairs.iter().position(|a| *a.0 == field).unwrap();
+                    Ok((
+                        TypedExpr::Access(value.clone(), Box::new(lhs), idx as i32),
+                        scope.clone(),
+                    ))
+                } else {
+                    Err(TypeError::MissingKey(field))
+                }
+            } else {
+                Err(TypeError::AccessOnNonStruct(struct_type))
+            }
+        }
+        UntypedExpr::BinaryOp { lhs, op, rhs } => todo!(),
+        UntypedExpr::Literal(_) => todo!(),
+        UntypedExpr::Ident(_) => todo!(),
+        UntypedExpr::FunctionCall(_, _) => todo!(),
+        UntypedExpr::Binding { lhs, local, rhs } => todo!(),
+        UntypedExpr::IfElse {
+            condition,
+            then,
+            r#else,
+        } => todo!(),
+        UntypedExpr::UnaryOp { op, target } => todo!(),
+        UntypedExpr::Mutate { lhs, rhs } => todo!(),
     }
 }
 
@@ -377,6 +411,21 @@ fn type_literal(
                 .collect::<Result<Vec<TypedExpr>, TypeError>>()?;
             TypedLiteral::Array(typed)
         }
+        crate::ast::Literal::Struct(x) => {
+            let pairs = x
+                .iter()
+                .map(|(key, value)| Ok((key.clone(), type_expr(value.clone(), types, scope)?.0)))
+                .collect::<Result<Vec<(String, TypedExpr)>, _>>()?;
+            TypedLiteral::Struct(
+                Type::Struct(
+                    pairs
+                        .iter()
+                        .map(|(k, x)| (k.clone(), get_type(x.clone())))
+                        .collect(),
+                ),
+                pairs,
+            )
+        }
         crate::ast::Literal::String(x) => TypedLiteral::String(x.clone()),
         crate::ast::Literal::Function {
             args,
@@ -438,6 +487,17 @@ fn get_literal_type(
     match literal {
         crate::ast::Literal::Int(_) => Ok(Type::Int),
         crate::ast::Literal::Bool(_) => Ok(Type::Bool),
+        crate::ast::Literal::Struct(pairs) => Ok(Type::Struct(HashMap::from(
+            pairs
+                .iter()
+                .map(|(name, value)| {
+                    Ok((
+                        name.clone(),
+                        get_type(type_expr(value.clone(), types, scope)?.0),
+                    ))
+                })
+                .collect::<Result<HashMap<String, Type>, _>>()?,
+        ))),
         crate::ast::Literal::String(val) => Ok(Type::Array(Box::new(Type::Int))),
         crate::ast::Literal::Function {
             args,
@@ -536,7 +596,12 @@ fn get_type_declaration(
                                                                      //     .clone(),
                 );
             }
-            Ok((name.clone(), Type::Struct(fields)))
+            Ok((
+                name.clone(),
+                Type::Struct(
+                    fields.clone(), /*, fields.keys().map(|x| x.clone()).collect()*/
+                ),
+            ))
         }
         TypeDeclaration::Enum(name, r#enum) => Ok((name.clone(), Type::Enum(r#enum.clone()))),
         TypeDeclaration::Alias(name, target_name) => {

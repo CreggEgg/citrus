@@ -550,9 +550,11 @@ fn compile_global(
                 ret_type,
             } => unreachable!(),
             TypedLiteral::Array(_) => todo!(),
+            TypedLiteral::Struct(_, _) => todo!(),
         },
         TypedExpr::Ident(_, _) => todo!(),
         TypedExpr::UnaryOp { r#type, op, target } => todo!(),
+        TypedExpr::Access(_, _, _) => todo!(),
     }
 }
 
@@ -714,6 +716,30 @@ fn compile_expr(
                         r#type: Type::Array(Box::new(Type::Int)),
                     }
                 }
+                TypedLiteral::Struct(r#type, pairs) => {
+                    let mut pairs = pairs.clone();
+                    pairs.sort_by(|a, b| a.0.cmp(&b.0));
+                    let stack_slot = builder.create_sized_stack_slot(StackSlotData::new(
+                        StackSlotKind::ExplicitSlot,
+                        64 * (pairs.len() as u32 + 1),
+                    ));
+                    let addr = builder.ins().stack_addr(I64, stack_slot, 0);
+                    let len = builder.ins().iconst(I64, pairs.len() as i64);
+                    builder.ins().store(MemFlags::new(), len, addr, 0);
+
+                    for (i, (_, val)) in pairs.iter().enumerate() {
+                        let val = compile_expr(val.clone(), builder, scope.clone(), obj_module)?
+                            .0
+                            .value(builder, obj_module)?;
+                        builder
+                            .ins()
+                            .store(MemFlags::new(), val, addr, (i + 1) as i32 * 64);
+                    }
+                    CitrusValue::Value {
+                        cranelift_value: addr,
+                        r#type,
+                    }
+                }
             },
             scope,
         )),
@@ -831,6 +857,44 @@ fn compile_expr(
             } else {
                 Err(CompileError::UndefinedValue(lhs))
             }
+        }
+        TypedExpr::BinaryOp {
+            r#type,
+            lhs,
+            op,
+            rhs,
+        } => todo!(),
+        TypedExpr::Literal(_, _) => todo!(),
+        TypedExpr::Ident(_, _) => todo!(),
+        TypedExpr::FunctionCall(_, _, _) => todo!(),
+        TypedExpr::Binding {
+            r#type,
+            lhs,
+            rhs,
+            local,
+        } => todo!(),
+        TypedExpr::IfElse {
+            r#type,
+            condition,
+            then,
+            r#else,
+        } => todo!(),
+        TypedExpr::UnaryOp { r#type, op, target } => todo!(),
+        TypedExpr::Mutate { r#type, lhs, rhs } => todo!(),
+        TypedExpr::Access(r#type, r#struct, index) => {
+            // let pairs =
+            let r#struct = compile_expr(*r#struct, builder, scope.clone(), obj_module)?
+                .0
+                .value(builder, obj_module)?;
+            let index = builder.ins().iconst(I64, (index * 8) as i64);
+            let ptr = builder.ins().iadd(r#struct, index);
+            Ok((
+                CitrusValue::Value {
+                    cranelift_value: builder.ins().load(I64, MemFlags::new(), ptr, 0),
+                    r#type,
+                },
+                scope,
+            ))
         }
     }
 }

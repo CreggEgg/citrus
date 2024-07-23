@@ -1,5 +1,15 @@
 alias string = [int];
+type test_struct = {
+	count: int
+};
+
+extern printint: fn(int): unit;
 extern printstr: fn(string): unit;
 let main = fn() {
-  printstr("hello world");
+	printstr("hello world");
+	let x = {
+		count: 5
+	};
+	printstr("Count: ");
+	printint(x::count);
 }

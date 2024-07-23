@@ -27,6 +27,7 @@ pub enum TypeDeclaration {
 
 #[derive(Debug, Clone)]
 pub enum UntypedExpr {
+    Access(Box<UntypedExpr>, String),
     BinaryOp {
         lhs: Box<UntypedExpr>,
         op: BinaryOperator,
@@ -87,6 +88,7 @@ pub struct AnnotatedIdent {
 pub enum Literal {
     Int(i32),
     String(String),
+    Struct(Vec<(String, UntypedExpr)>),
     Function {
         args: Vec<AnnotatedIdent>,
         body: Vec<UntypedExpr>,

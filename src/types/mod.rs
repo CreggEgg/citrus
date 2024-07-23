@@ -55,6 +55,7 @@ pub enum TypedExpr {
         lhs: String,
         rhs: Box<TypedExpr>,
     },
+    Access(Type, Box<TypedExpr>, i32),
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +69,7 @@ pub enum TypedLiteral {
     },
     Bool(bool),
     Array(Vec<TypedExpr>),
+    Struct(Type, Vec<(String, TypedExpr)>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
