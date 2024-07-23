@@ -60,16 +60,21 @@ pub enum BinaryOperator {
     Subtract,
     Multiply,
     Divide,
+    Modulo,
     Power,
     Gt,
     Lt,
     Gte,
     Lte,
+    Eq,
+    And,
+    Or,
 }
 #[derive(Debug, Clone, Copy)]
 pub enum UnaryOperator {
     Positive,
     Negative,
+    Not,
     Exclave,
 }
 
@@ -88,6 +93,7 @@ pub enum Literal {
         ret_type: Option<TypeName>,
     },
     Bool(bool),
+    Array(Vec<UntypedExpr>),
 }
 
 #[derive(Debug, Clone)]

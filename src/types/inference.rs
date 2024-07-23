@@ -6,7 +6,7 @@ use crate::ast::{
 
 use super::{Type, TypedExpr, TypedFile, TypedLiteral, TypedTopLevelDeclaration};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TypeError {
     UnknownType(String),
     UndefinedValue(String),
@@ -15,6 +15,7 @@ pub enum TypeError {
     NonFunctionCall(String, Type),
     IncorrectType(Type, Type),
     UnmatchedTypes(Type, Type),
+    InconsistentArrayValues(Type, Type),
 }
 
 pub fn type_file(ast: File) -> Result<TypedFile, TypeError> {
@@ -118,11 +119,15 @@ fn type_expr(
                         | crate::ast::BinaryOperator::Subtract
                         | crate::ast::BinaryOperator::Multiply
                         | crate::ast::BinaryOperator::Divide
-                        | crate::ast::BinaryOperator::Power => shared_type,
+                        | crate::ast::BinaryOperator::Power
+                        | crate::ast::BinaryOperator::Modulo => shared_type,
                         crate::ast::BinaryOperator::Gt
                         | crate::ast::BinaryOperator::Lt
                         | crate::ast::BinaryOperator::Gte
-                        | crate::ast::BinaryOperator::Lte => Type::Bool,
+                        | crate::ast::BinaryOperator::Lte
+                        | crate::ast::BinaryOperator::Eq
+                        | crate::ast::BinaryOperator::And
+                        | crate::ast::BinaryOperator::Or => Type::Bool,
                     },
                     lhs: Box::new(lhs.0),
                     op,
@@ -279,6 +284,22 @@ fn type_expr(
                     scope,
                 ))
             }
+            crate::ast::UnaryOperator::Not => {
+                let (typed, scope) = type_expr(*target.clone(), types, scope)?;
+                let r#type = get_type(typed.clone());
+                if r#type != Type::Bool {
+                    Err(TypeError::IncorrectType(r#type, Type::Bool))
+                } else {
+                    Ok((
+                        TypedExpr::UnaryOp {
+                            r#type,
+                            op,
+                            target: Box::new(typed),
+                        },
+                        scope,
+                    ))
+                }
+            }
         },
         crate::ast::UntypedExpr::Mutate { lhs, rhs } => {
             let rhs = type_expr(*rhs, types, scope)?;
@@ -349,6 +370,13 @@ fn type_literal(
     Ok(match literal {
         crate::ast::Literal::Int(x) => TypedLiteral::Int(*x),
         crate::ast::Literal::Bool(x) => TypedLiteral::Bool(*x),
+        crate::ast::Literal::Array(x) => {
+            let typed = x
+                .iter()
+                .map(|expr| Ok(type_expr(expr.clone(), types, scope)?.0))
+                .collect::<Result<Vec<TypedExpr>, TypeError>>()?;
+            TypedLiteral::Array(typed)
+        }
         crate::ast::Literal::String(x) => TypedLiteral::String(x.clone()),
         crate::ast::Literal::Function {
             args,
@@ -434,6 +462,27 @@ fn get_literal_type(
                                                  //     .unwrap_or(Ok(Type::Unit))?,
             ),
         )),
+        Literal::Int(_) => todo!(),
+        Literal::String(_) => todo!(),
+        Literal::Function {
+            args,
+            body,
+            ret_type,
+        } => todo!(),
+        Literal::Bool(_) => todo!(),
+        Literal::Array(vals) => {
+            let typed = vals
+                .iter()
+                .map(|expr| Ok(get_type(type_expr(expr.clone(), types, scope)?.0)))
+                .collect::<Result<Vec<_>, _>>()?;
+            let first_type = typed.get(0).unwrap().clone();
+            for r#type in typed {
+                if r#type != first_type.clone() {
+                    return Err(TypeError::InconsistentArrayValues(first_type, r#type));
+                };
+            }
+            Ok(Type::Array(Box::new(first_type)))
+        }
     }
 }
 

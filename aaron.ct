@@ -13,4 +13,4 @@ let equals = fn(a: int, ba: int): bool {
 let is_mult = fn(a: int,b: int) {
     let div_mult = a/b * b;
     div_mult = a 
-};
+}
