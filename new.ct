@@ -2,9 +2,12 @@ alias string = [int];
 extern printstr: fn(string): unit;
 extern printint: fn(int): unit;
 extern index: fn([int], int): int;
+extern setindex: fn([int], int, int): unit;
 
 let main = fn() {
 	let x = [64, 65, 64];
+	printint(index(x, 1));
+	setindex(x, 1, 64);
 	printint(index(x, 1));
 	printstr(x)
 };
