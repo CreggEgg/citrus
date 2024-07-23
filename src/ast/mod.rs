@@ -96,6 +96,7 @@ pub enum Literal {
     },
     Bool(bool),
     Array(Vec<UntypedExpr>),
+    Unit,
 }
 
 #[derive(Debug, Clone)]

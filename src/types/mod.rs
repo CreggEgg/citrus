@@ -70,6 +70,7 @@ pub enum TypedLiteral {
     Bool(bool),
     Array(Vec<TypedExpr>),
     Struct(Type, Vec<(String, TypedExpr)>),
+    Unit,
 }
 
 #[derive(Debug, PartialEq, Clone)]

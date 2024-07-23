@@ -95,7 +95,8 @@ Literal: Literal = {
 	<s: r#"".+""#> => Literal::String(s[1..(s.len() - 1)].to_owned()),
 	"fn(" <a: Comma<AnnotatedIdent>> ")" <r: Annotation?> "{"<b: Block>"}" => Literal::Function {args: a, body: b,ret_type: r},
 	"[" <v: Comma<Expr>> "]" => Literal::Array(v),
-	"{" <p: Comma<StructExprPair>>"}" => Literal::Struct(p)
+	"{" <p: Comma<StructExprPair>>"}" => Literal::Struct(p),
+	"()" => Literal::Unit
 }
 
 Comma<T>: Vec<T> = { // (1)

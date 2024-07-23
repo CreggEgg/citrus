@@ -496,6 +496,7 @@ fn type_literal(
                                //),
             }
         }
+        Literal::Unit => TypedLiteral::Unit,
     })
 }
 
@@ -542,14 +543,6 @@ fn get_literal_type(
                                                  //     .unwrap_or(Ok(Type::Unit))?,
             ),
         )),
-        Literal::Int(_) => todo!(),
-        Literal::String(_) => todo!(),
-        Literal::Function {
-            args,
-            body,
-            ret_type,
-        } => todo!(),
-        Literal::Bool(_) => todo!(),
         Literal::Array(vals) => {
             let typed = vals
                 .iter()
@@ -563,6 +556,7 @@ fn get_literal_type(
             }
             Ok(Type::Array(Box::new(first_type)))
         }
+        Literal::Unit => Ok(Type::Unit),
     }
 }
 

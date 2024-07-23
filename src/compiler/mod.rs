@@ -654,6 +654,11 @@ fn compile_global(
             TypedLiteral::Function { .. } => unreachable!(),
             TypedLiteral::Array(_) => todo!(),
             TypedLiteral::Struct(_, _) => todo!(),
+            TypedLiteral::Unit => Ok(CitrusValue::Value {
+                cranelift_value: builder.ins().iconst(I64, 0),
+                r#type,
+                heap: false, // storage_location: StorageLocation::Heap,
+            }),
         },
         TypedExpr::Ident(_, _) => todo!(),
         TypedExpr::UnaryOp { .. } => todo!(),
@@ -867,6 +872,11 @@ fn compile_expr(
                         heap: false,
                     }
                 }
+                TypedLiteral::Unit => CitrusValue::Value {
+                    cranelift_value: builder.ins().iconst(I64, 0),
+                    r#type,
+                    heap: false, // storage_location: StorageLocation::Stack,
+                },
             },
             scope,
         )),
