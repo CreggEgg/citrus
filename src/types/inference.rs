@@ -110,9 +110,20 @@ fn type_expr(
         crate::ast::UntypedExpr::BinaryOp { lhs, op, rhs } => {
             let lhs = type_expr(*lhs, types, scope)?;
             let rhs = type_expr(*rhs, types, scope)?;
+            let shared_type = require_identical(get_type(lhs.0.clone()), get_type(rhs.0.clone()))?;
             Ok((
                 TypedExpr::BinaryOp {
-                    r#type: require_identical(get_type(lhs.0.clone()), get_type(rhs.0.clone()))?,
+                    r#type: match op {
+                        crate::ast::BinaryOperator::Add
+                        | crate::ast::BinaryOperator::Subtract
+                        | crate::ast::BinaryOperator::Multiply
+                        | crate::ast::BinaryOperator::Divide
+                        | crate::ast::BinaryOperator::Power => shared_type,
+                        crate::ast::BinaryOperator::Gt
+                        | crate::ast::BinaryOperator::Lt
+                        | crate::ast::BinaryOperator::Gte
+                        | crate::ast::BinaryOperator::Lte => Type::Bool,
+                    },
                     lhs: Box::new(lhs.0),
                     op,
                     rhs: Box::new(rhs.0),
@@ -337,6 +348,7 @@ fn type_literal(
 ) -> Result<TypedLiteral, TypeError> {
     Ok(match literal {
         crate::ast::Literal::Int(x) => TypedLiteral::Int(*x),
+        crate::ast::Literal::Bool(x) => TypedLiteral::Bool(*x),
         crate::ast::Literal::String(x) => TypedLiteral::String(x.clone()),
         crate::ast::Literal::Function {
             args,
@@ -397,6 +409,7 @@ fn get_literal_type(
 ) -> Result<Type, TypeError> {
     match literal {
         crate::ast::Literal::Int(_) => Ok(Type::Int),
+        crate::ast::Literal::Bool(_) => Ok(Type::Bool),
         crate::ast::Literal::String(val) => Ok(Type::Array(Box::new(Type::Int))),
         crate::ast::Literal::Function {
             args,

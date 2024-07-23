@@ -66,6 +66,7 @@ pub enum TypedLiteral {
         body: Vec<TypedExpr>,
         ret_type: Option<Type>,
     },
+    Bool(bool),
 }
 
 #[derive(Debug, PartialEq, Clone)]

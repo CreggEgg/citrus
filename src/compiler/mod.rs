@@ -511,20 +511,14 @@ fn compile_global(
                 crate::ast::BinaryOperator::Divide => builder.ins().sdiv(lhs, rhs),
                 crate::ast::BinaryOperator::Power => todo!(),
                 // crate::ast::BinaryOperator::Semicolon => todo!(),
-                crate::ast::BinaryOperator::Gt => {
-                    builder.ins().icmp(IntCC::SignedGreaterThan, lhs, rhs)
-                }
+                crate::ast::BinaryOperator::Gt => cmp(IntCC::SignedGreaterThan, lhs, rhs, builder),
 
-                crate::ast::BinaryOperator::Lt => {
-                    builder.ins().icmp(IntCC::SignedLessThan, lhs, rhs)
-                }
+                crate::ast::BinaryOperator::Lt => cmp(IntCC::SignedLessThan, lhs, rhs, builder),
                 crate::ast::BinaryOperator::Gte => {
-                    builder
-                        .ins()
-                        .icmp(IntCC::SignedGreaterThanOrEqual, lhs, rhs)
+                    cmp(IntCC::SignedGreaterThanOrEqual, lhs, rhs, builder)
                 }
                 crate::ast::BinaryOperator::Lte => {
-                    builder.ins().icmp(IntCC::SignedLessThanOrEqual, lhs, rhs)
+                    cmp(IntCC::SignedLessThanOrEqual, lhs, rhs, builder)
                 }
             };
             Ok(CitrusValue::Value {
@@ -536,6 +530,12 @@ fn compile_global(
         TypedExpr::Literal(r#type, literal) => match literal {
             TypedLiteral::Int(int) => Ok(CitrusValue::Value {
                 cranelift_value: builder.ins().iconst(I64, int as i64),
+                r#type,
+                // storage_location: StorageLocation::Heap,
+            }),
+
+            TypedLiteral::Bool(x) => Ok(CitrusValue::Value {
+                cranelift_value: builder.ins().iconst(I64, if x { 1 } else { 0 }),
                 r#type,
                 // storage_location: StorageLocation::Heap,
             }),
@@ -600,29 +600,25 @@ fn compile_expr(
                     },
                     crate::ast::BinaryOperator::Power => todo!(),
                     crate::ast::BinaryOperator::Gt => CitrusValue::Value {
-                        cranelift_value: builder.ins().icmp(IntCC::SignedGreaterThan, lhs, rhs),
+                        cranelift_value: cmp(IntCC::SignedGreaterThan, lhs, rhs, builder),
                         r#type,
                         // storage_location: StorageLocation::Stack,
                     },
                     crate::ast::BinaryOperator::Lt => CitrusValue::Value {
-                        cranelift_value: builder.ins().icmp(IntCC::SignedLessThan, lhs, rhs),
+                        cranelift_value: cmp(IntCC::SignedLessThan, lhs, rhs, builder),
 
                         r#type,
                         // storage_location: StorageLocation::Stack,
                     },
                     crate::ast::BinaryOperator::Gte => CitrusValue::Value {
-                        cranelift_value: builder.ins().icmp(
-                            IntCC::SignedGreaterThanOrEqual,
-                            lhs,
-                            rhs,
-                        ),
+                        cranelift_value: cmp(IntCC::SignedGreaterThanOrEqual, lhs, rhs, builder),
 
                         r#type,
                         // storage_location: StorageLocation::Stack,
                     },
 
                     crate::ast::BinaryOperator::Lte => CitrusValue::Value {
-                        cranelift_value: builder.ins().icmp(IntCC::SignedLessThanOrEqual, lhs, rhs),
+                        cranelift_value: cmp(IntCC::SignedLessThanOrEqual, lhs, rhs, builder),
 
                         r#type,
                         // storage_location: StorageLocation::Stack,
@@ -663,6 +659,10 @@ fn compile_expr(
                     body,
                     ret_type,
                 } => todo!(),
+                TypedLiteral::Bool(value) => CitrusValue::Value {
+                    cranelift_value: builder.ins().iconst(I64, if value { 1 } else { 0 }),
+                    r#type: Type::Bool,
+                },
             },
             scope,
         )),
@@ -789,4 +789,9 @@ fn get_size_bytes(r#type: &Type) -> i64 {
         Type::Function(_, _) => unreachable!(), //the compiler should convert functions to
                                                 //cranelift ir functions and not values by this point
     }
+}
+
+fn cmp(cmp: IntCC, lhs: Value, rhs: Value, builder: &mut FunctionBuilder) -> Value {
+    let as_i8 = builder.ins().icmp(cmp, lhs, rhs);
+    builder.ins().sextend(I64, as_i8)
 }

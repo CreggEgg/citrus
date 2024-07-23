@@ -87,6 +87,7 @@ pub enum Literal {
         body: Vec<UntypedExpr>,
         ret_type: Option<TypeName>,
     },
+    Bool(bool),
 }
 
 #[derive(Debug, Clone)]

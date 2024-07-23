@@ -38,6 +38,10 @@ Expr: UntypedExpr = {
 	#[precedence(level="2")] #[assoc(side="left")]
 	<l: Expr> "+" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Add, rhs: Box::new(r)},
 	<l: Expr> "-" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Subtract, rhs: Box::new(r)},
+	<l: Expr> ">" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Gt, rhs: Box::new(r)},
+	<l: Expr> "<" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Lt, rhs: Box::new(r)},
+	<l: Expr> ">=" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Gte, rhs: Box::new(r)},
+	<l: Expr> "<=" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Lte, rhs: Box::new(r)},
 	#[precedence(level="3")] #[assoc(side="left")]
 	<l: Expr> "*" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Multiply, rhs: Box::new(r)},
 	<l: Expr> "/" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Divide, rhs: Box::new(r)},
@@ -45,10 +49,6 @@ Expr: UntypedExpr = {
 	<i: Ident> <a: FunctionArgs> => UntypedExpr::FunctionCall(i, a),
 	#[precedence(level="1")] #[assoc(side="left")]
 	<i: Ident> => UntypedExpr::Ident(i),
-	<l: Expr> ">" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Gt, rhs: Box::new(r)},
-	<l: Expr> "<" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Lt, rhs: Box::new(r)},
-	<l: Expr> ">=" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Gte, rhs: Box::new(r)},
-	<l: Expr> "<=" <r: Expr> => UntypedExpr::BinaryOp {lhs: Box::new(l), op: BinaryOperator::Lte, rhs: Box::new(r)},
 	"if" <c: Expr> "{" <t: Block> "}" "else" "{" <e: Block> "}" => UntypedExpr::IfElse { condition: Box::new(c), then: t, r#else: e},
 	#[precedence(level="4")]
 	"@" <e: Expr> => UntypedExpr::UnaryOp {op: UnaryOperator::Exclave, target: Box::new(e)},
@@ -59,6 +59,8 @@ FunctionArgs: Vec<UntypedExpr> = "(" <a: Comma<Expr>> ")" => a;
 Ident: String = r"[a-zA-Z_]+" => <>.to_owned();
 Literal: Literal = {
 	r"[0-9]+" => Literal::Int(<>.parse::<i32>().unwrap()),
+	"false" => Literal::Bool(false),
+	"true" => Literal::Bool(true),
 	<s: r#"".+""#> => Literal::String(s[1..(s.len() - 1)].to_owned()),
 	"fn(" <a: Comma<AnnotatedIdent>> ")" <r: Annotation?> "{"<b: Block>"}" => Literal::Function {args: a, body: b,ret_type: r}
 }

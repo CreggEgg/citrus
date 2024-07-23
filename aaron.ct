@@ -1,0 +1,16 @@
+let not = fn(a : bool): bool {
+    if a {
+        false
+    } else {
+        true
+    }
+};
+
+let equals = fn(a: int, ba: int): bool {
+    not(a < ba)
+};
+
+let is_mult = fn(a: int,b: int) {
+    let div_mult = a/b * b;
+    div_mult = a 
+};
