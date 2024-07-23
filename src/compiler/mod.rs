@@ -524,8 +524,8 @@ fn move_to_heap(
         if !heap {
             let malloc = obj_module.declare_func_in_func(functions.malloc, builder.func);
             let copy = obj_module.declare_func_in_func(functions.copy, builder.func);
-            let value = match r#type {
-                Type::Int | Type::Bool => cranelift_value,
+            let (heap, value) = match r#type {
+                Type::Int | Type::Bool => (false, cranelift_value),
                 Type::Array(ref value) => {
                     let len = builder.ins().load(I64, MemFlags::new(), cranelift_value, 0);
                     let eight = builder.ins().iconst(I64, 8);
@@ -536,7 +536,7 @@ fn move_to_heap(
 
                     builder.ins().call(copy, &[heap_ptr, cranelift_value, size]);
 
-                    heap_ptr
+                    (true, heap_ptr)
                 }
                 Type::Struct(_) => todo!(),
 
@@ -548,7 +548,7 @@ fn move_to_heap(
             Ok(CitrusValue::Value {
                 cranelift_value: value,
                 r#type,
-                heap: true,
+                heap,
             })
         } else {
             Ok(CitrusValue::Value {
