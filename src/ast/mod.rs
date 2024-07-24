@@ -62,7 +62,7 @@ pub enum BinaryOperator {
     Multiply,
     Divide,
     Modulo,
-    Power,
+    //Power,
     Gt,
     Lt,
     Gte,
@@ -73,7 +73,7 @@ pub enum BinaryOperator {
 }
 #[derive(Debug, Clone, Copy)]
 pub enum UnaryOperator {
-    Positive,
+    //Positive,
     Negative,
     Not,
     Exclave,

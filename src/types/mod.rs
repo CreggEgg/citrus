@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ast::{BinaryOperator, Literal, TypeName, UnaryOperator};
+use crate::ast::{BinaryOperator, UnaryOperator};
 
 pub mod inference;
 

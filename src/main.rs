@@ -1,4 +1,3 @@
-#![warn(clippy::pedantic, clippy::nursery, clippy::cargo)]
 use std::{fs, path::Path};
 
 use clap::{command, Parser};

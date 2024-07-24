@@ -1,8 +1,6 @@
-use std::{any::Any, clone, collections::HashMap, thread, usize};
+use std::collections::HashMap;
 
-use crate::ast::{
-    AnnotatedIdent, File, Literal, TopLevelDeclaration, TypeDeclaration, TypeName, UntypedExpr,
-};
+use crate::ast::{File, Literal, TopLevelDeclaration, TypeDeclaration, TypeName, UntypedExpr};
 
 use super::{Type, TypedExpr, TypedFile, TypedLiteral, TypedTopLevelDeclaration};
 
@@ -125,7 +123,7 @@ fn type_expr(
                         | crate::ast::BinaryOperator::Subtract
                         | crate::ast::BinaryOperator::Multiply
                         | crate::ast::BinaryOperator::Divide
-                        | crate::ast::BinaryOperator::Power
+                        // | crate::ast::BinaryOperator::Power
                         | crate::ast::BinaryOperator::Modulo => shared_type,
                         crate::ast::BinaryOperator::Gt
                         | crate::ast::BinaryOperator::Lt
@@ -250,17 +248,17 @@ fn type_expr(
         }
         crate::ast::UntypedExpr::UnaryOp { op, ref target } => {
             match op {
-                crate::ast::UnaryOperator::Positive => Ok((
-                    TypedExpr::UnaryOp {
-                        r#type: require_type(
-                            type_expr(*target.clone(), types, scope)?.0,
-                            Type::Int,
-                        )?,
-                        op,
-                        target: Box::new(type_expr(*target.clone(), types, scope)?.0),
-                    },
-                    scope.clone(),
-                )),
+                // crate::ast::UnaryOperator::Positive => Ok((
+                //     TypedExpr::UnaryOp {
+                //         r#type: require_type(
+                //             type_expr(*target.clone(), types, scope)?.0,
+                //             Type::Int,
+                //         )?,
+                //         op,
+                //         target: Box::new(type_expr(*target.clone(), types, scope)?.0),
+                //     },
+                //     scope.clone(),
+                // )),
                 crate::ast::UnaryOperator::Negative => Ok((
                     TypedExpr::UnaryOp {
                         r#type: require_type(
@@ -356,18 +354,6 @@ fn type_expr(
                 Err(TypeError::AccessOnNonStruct(struct_type))
             }
         }
-        UntypedExpr::BinaryOp { lhs, op, rhs } => todo!(),
-        UntypedExpr::Literal(_) => todo!(),
-        UntypedExpr::Ident(_) => todo!(),
-        UntypedExpr::FunctionCall(_, _) => todo!(),
-        UntypedExpr::Binding { lhs, local, rhs } => todo!(),
-        UntypedExpr::IfElse {
-            condition,
-            then,
-            r#else,
-        } => todo!(),
-        UntypedExpr::UnaryOp { op, target } => todo!(),
-        UntypedExpr::Mutate { lhs, rhs } => todo!(),
     }
 }
 
@@ -508,7 +494,7 @@ fn get_literal_type(
     match literal {
         crate::ast::Literal::Int(_) => Ok(Type::Int),
         crate::ast::Literal::Bool(_) => Ok(Type::Bool),
-        crate::ast::Literal::Struct(pairs) => Ok(Type::Struct(HashMap::from(
+        crate::ast::Literal::Struct(pairs) => Ok(Type::Struct(
             pairs
                 .iter()
                 .map(|(name, value)| {
@@ -518,15 +504,11 @@ fn get_literal_type(
                     ))
                 })
                 .collect::<Result<HashMap<String, Type>, _>>()?,
-        ))),
-        crate::ast::Literal::String(val) => Ok(Type::Array(Box::new(Type::Int))),
-        crate::ast::Literal::Function {
-            args,
-            body,
-            ret_type,
-        } => Ok(Type::Function(
+        )),
+        crate::ast::Literal::String(_) => Ok(Type::Array(Box::new(Type::Int))),
+        crate::ast::Literal::Function { args, ret_type, .. } => Ok(Type::Function(
             args.iter()
-                .map(|annotation| Ok(type_from_name(annotation.type_name.clone(), types)?))
+                .map(|annotation| type_from_name(annotation.type_name.clone(), types))
                 .collect::<Result<Vec<Type>, TypeError>>()?,
             Box::new(
                 ret_type
@@ -548,7 +530,7 @@ fn get_literal_type(
                 .iter()
                 .map(|expr| Ok(get_type(type_expr(expr.clone(), types, scope)?.0)))
                 .collect::<Result<Vec<_>, _>>()?;
-            let first_type = typed.get(0).unwrap().clone();
+            let first_type = typed.first().unwrap().clone();
             for r#type in typed {
                 if r#type != first_type.clone() {
                     return Err(TypeError::InconsistentArrayValues(first_type, r#type));
@@ -574,7 +556,7 @@ fn type_from_name(type_name: TypeName, types: &HashMap<String, Type>) -> Result<
         TypeName::Function(args, ret) => Ok(Type::Function(
             args.iter()
                 .map(|annotation| {
-                    Ok(type_from_name(annotation.clone(), types)?)
+                    type_from_name(annotation.clone(), types)
                     // Ok(crate::types::AnnotatedIdent {
                     //     name: annotation.name.clone(),
                     //     r#type: type_from_name(annotation.type_name.clone(), types)?,
