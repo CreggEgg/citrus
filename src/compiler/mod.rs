@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fs::{self, File},
+    ops::Index,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -723,7 +724,7 @@ fn compile_global(
             TypedLiteral::String(_) => todo!(),
             TypedLiteral::Function { .. } => unreachable!(),
             TypedLiteral::Array(_) => todo!(),
-            TypedLiteral::Struct(_, _) => todo!(),
+            TypedLiteral::Struct(_, _, _) => todo!(),
             TypedLiteral::Unit => Ok(CitrusValue::Value {
                 cranelift_value: builder.ins().iconst(I64, 0),
                 r#type,
@@ -906,8 +907,70 @@ fn compile_expr(
                         heap: false,
                     }
                 }
-                TypedLiteral::Struct(r#type, pairs) => {
-                    let mut pairs = pairs.clone();
+                TypedLiteral::Struct(r#type, with, base) => {
+                    let mut pairs: Vec<(String, CitrusValue)> = Vec::new();
+                    if let Some(base) = base {
+                        let base = compile_expr(
+                            *base,
+                            builder,
+                            scope.clone(),
+                            obj_module,
+                            functions.clone(),
+                        )?
+                        .0;
+                        if let CitrusValue::Value {
+                            cranelift_value,
+                            r#type: Type::Struct(base_pairs),
+                            heap,
+                        } = base
+                        {
+                            let mut base_pairs = base_pairs.iter().collect::<Vec<_>>();
+                            base_pairs.sort_by(|a, b| a.0.cmp(b.0));
+                            for (i, (key, value_type)) in base_pairs.iter().enumerate() {
+                                let value_index = builder.ins().iconst(I64, i as i64);
+
+                                let value_addr = builder.ins().imul_imm(value_index, 8);
+                                let value = builder.ins().load(I64, MemFlags::new(), value_addr, 0);
+                                pairs.push((
+                                    key.clone().to_string(),
+                                    CitrusValue::Value {
+                                        cranelift_value: value,
+                                        r#type: value_type.clone().clone(),
+                                        heap: false,
+                                    },
+                                ))
+                            }
+                        };
+                    }
+                    for (k, v) in with.clone() {
+                        let index = pairs
+                            .iter()
+                            .enumerate()
+                            .find(|(_, (key, _))| **key == k)
+                            .map(|(index, _)| index);
+                        if let Some(Some(value)) = index.map(|index| pairs.get_mut(index)) {
+                            value.1 = compile_expr(
+                                v,
+                                builder,
+                                scope.clone(),
+                                obj_module,
+                                functions.clone(),
+                            )?
+                            .0;
+                        } else {
+                            pairs.push((
+                                k.clone(),
+                                compile_expr(
+                                    v,
+                                    builder,
+                                    scope.clone(),
+                                    obj_module,
+                                    functions.clone(),
+                                )?
+                                .0,
+                            ))
+                        }
+                    }
                     pairs.sort_by(|a, b| a.0.cmp(&b.0));
                     let stack_slot = builder.create_sized_stack_slot(StackSlotData::new(
                         StackSlotKind::ExplicitSlot,
@@ -916,14 +979,15 @@ fn compile_expr(
                     let addr = builder.ins().stack_addr(I64, stack_slot, 0);
 
                     for (i, (_, val)) in pairs.iter().enumerate() {
-                        let val = compile_expr(
+                        let val = /* compile_expr(
                             val.clone(),
                             builder,
                             scope.clone(),
                             obj_module,
                             functions.clone(),
                         )?
-                        .0
+                        .0 */
+                        val
                         .value(builder, obj_module)?;
                         builder
                             .ins()

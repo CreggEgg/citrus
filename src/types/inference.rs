@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, iter::once_with};
 
 use crate::ast::{File, Literal, TopLevelDeclaration, TypeDeclaration, TypeName, UntypedExpr};
 
@@ -17,6 +17,7 @@ pub enum TypeError {
     AccessOnNonStruct(Type),
     MissingKey(String),
     MismatchedMutation(String, Type, Type),
+    WithOnNonStruct(Type),
 }
 
 pub fn type_file(ast: File) -> Result<TypedFile, TypeError> {
@@ -423,7 +424,7 @@ fn type_literal(
                 .collect::<Result<Vec<TypedExpr>, TypeError>>()?;
             TypedLiteral::Array(typed)
         }
-        crate::ast::Literal::Struct(x) => {
+        crate::ast::Literal::Struct(with, x) => {
             let pairs = x
                 .iter()
                 .map(|(key, value)| Ok((key.clone(), type_expr(value.clone(), types, scope)?.0)))
@@ -436,6 +437,18 @@ fn type_literal(
                         .collect(),
                 ),
                 pairs,
+                if let Some(x) = with
+                    .as_ref()
+                    .map(|with| type_expr(*with.clone(), types, scope))
+                {
+                    if let Type::Struct(_) = get_type(x.clone()?.0) {
+                        Some(Box::new(x?.0))
+                    } else {
+                        return Err(TypeError::WithOnNonStruct(get_type(x?.0)));
+                    }
+                } else {
+                    None
+                },
             )
         }
         crate::ast::Literal::String(x) => TypedLiteral::String(x.clone()),
@@ -501,8 +514,8 @@ fn get_literal_type(
         crate::ast::Literal::Int(_) => Ok(Type::Int),
         crate::ast::Literal::Float(_) => Ok(Type::Float),
         crate::ast::Literal::Bool(_) => Ok(Type::Bool),
-        crate::ast::Literal::Struct(pairs) => Ok(Type::Struct(
-            pairs
+        crate::ast::Literal::Struct(with, pairs) => {
+            let original_pairs = pairs
                 .iter()
                 .map(|(name, value)| {
                     Ok((
@@ -510,8 +523,23 @@ fn get_literal_type(
                         get_type(type_expr(value.clone(), types, scope)?.0),
                     ))
                 })
-                .collect::<Result<HashMap<String, Type>, _>>()?,
-        )),
+                .collect::<Result<HashMap<String, Type>, _>>()?;
+            if let Some(with) = with {
+                let with = type_expr(*with.clone(), types, scope)?.0;
+                let with_type = get_type(with);
+                if let Type::Struct(with_pairs) = with_type {
+                    let mut final_pairs = with_pairs.clone();
+                    for (k, v) in original_pairs {
+                        final_pairs.insert(k, v);
+                    }
+                    Ok(Type::Struct(final_pairs))
+                } else {
+                    Err(TypeError::WithOnNonStruct(with_type))
+                }
+            } else {
+                Ok(Type::Struct(original_pairs))
+            }
+        }
         crate::ast::Literal::String(_) => Ok(Type::Array(Box::new(Type::Int))),
         crate::ast::Literal::Function { args, ret_type, .. } => Ok(Type::Function(
             args.iter()
