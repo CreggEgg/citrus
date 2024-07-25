@@ -23,7 +23,7 @@ Type: TypeName = {
 	<i: Ident> => TypeName::Named(i)
 }
 
-TopLevelBinding: TopLevelDeclaration = "let" <i: Ident> "=" <e: Expr> => TopLevelDeclaration::Binding {lhs: i, rhs: e};
+TopLevelBinding: TopLevelDeclaration = <p: "pub"?> "let" <i: Ident> "=" <e: Expr> => TopLevelDeclaration::Binding {public: p.is_some(),lhs: i, rhs: e};
 
 AnnotatedIdent: AnnotatedIdent = <i: Ident> ":" <t: Type> => AnnotatedIdent {name: i, type_name: t};
 

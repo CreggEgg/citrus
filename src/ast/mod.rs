@@ -8,7 +8,11 @@ pub struct File {
 #[derive(Debug)]
 pub enum TopLevelDeclaration {
     Type(TypeDeclaration),
-    Binding { lhs: String, rhs: UntypedExpr },
+    Binding {
+        public: bool,
+        lhs: String,
+        rhs: UntypedExpr,
+    },
     Extern(AnnotatedIdent),
 }
 

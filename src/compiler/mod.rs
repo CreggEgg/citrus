@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs::{self, File},
-    path::Path,
+    path::{Path, PathBuf},
     process::Command,
 };
 
@@ -15,11 +15,12 @@ use cranelift::{
     prelude::*,
 };
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
-use cranelift_object::{ObjectBuilder, ObjectModule};
+use cranelift_object::{object::write::Object, ObjectBuilder, ObjectModule};
 use target_lexicon::Triple;
 
 use crate::{
-    ast::UnaryOperator,
+    ast::{self, UnaryOperator},
+    compiler,
     types::{AnnotatedIdent, Type, TypedExpr, TypedLiteral, TypedTopLevelDeclaration},
 };
 
@@ -31,6 +32,7 @@ pub enum CompileError {
     UndefinedValue(String),
     CallOnNonFunction(Type),
     InvalidHeapValue(CitrusValue),
+    GccError(String),
 }
 
 #[derive(Clone, Debug)]
@@ -95,7 +97,84 @@ impl CitrusValue {
     }
 }
 
-pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
+pub fn build_dir() -> PathBuf {
+    let out_folder = Path::new("./out");
+    let _ = fs::create_dir(out_folder);
+    let tmp_folder = Path::new("./tmp");
+    let _ = fs::create_dir(tmp_folder);
+
+    let mut core_path = tmp_folder.canonicalize().unwrap();
+    core_path.push("core.c");
+    fs::write(&core_path, include_str!("../../core.c")).unwrap();
+
+    let citrus_files = fs::read_dir("./")
+        .unwrap()
+        .into_iter()
+        .filter_map(|file| {
+            if let Ok(file) = file {
+                if file.path().is_file()
+                    && file
+                        .path()
+                        .extension()
+                        .map(|ex| ex == "ct")
+                        .unwrap_or(false)
+                {
+                    // && file.path().ends_with(".ct") {
+                    Some(file.path())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        // .map(|file| file.unwrap().path())
+        .collect::<Vec<_>>();
+
+    for file in citrus_files.clone() {
+        println!("{}.o", file.to_str().unwrap());
+        let mut obj_path = tmp_folder.canonicalize().unwrap();
+        obj_path.push(format!("{}.o", file.file_stem().unwrap().to_str().unwrap()));
+        let out = File::create(obj_path).unwrap();
+        let ast = ast::parser::parse(&fs::read_to_string(file.clone()).unwrap()).unwrap();
+        let typed = crate::types::inference::type_file(ast::File { declarations: ast }).unwrap();
+        compiler::compile(
+            file.file_stem().unwrap().to_str().unwrap().to_string(),
+            typed.declarations,
+            citrus_files
+                .iter()
+                .map(|file| file.file_stem().unwrap().to_str().unwrap())
+                .collect(),
+        )
+        .unwrap()
+        .write_stream(out)
+        .unwrap();
+    }
+    let out = link(
+        citrus_files
+            .iter()
+            .map(|path| {
+                format!(
+                    "./tmp/{}",
+                    path.file_stem().unwrap().to_str().unwrap().to_string()
+                )
+            })
+            .collect(),
+        core_path.to_str().unwrap().to_string(),
+    )
+    .unwrap();
+
+    #[cfg(debug_assertions)]
+    dbg!(Path::new("./").canonicalize().unwrap());
+    fs::remove_dir_all("./tmp").unwrap();
+    out
+}
+
+pub fn compile(
+    file_name: String,
+    ast: Vec<TypedTopLevelDeclaration>,
+    modules: Vec<&str>,
+) -> Result<Object<'static>, CompileError> {
     println!("129");
     let mut settings_builder = settings::builder();
     settings_builder.enable("is_pic").unwrap();
@@ -107,7 +186,7 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
 
     let obj_builder = ObjectBuilder::new(
         isa.clone(),
-        "main",
+        file_name.clone(), //"main",
         cranelift_module::default_libcall_names(),
     );
     let mut obj_module = ObjectModule::new(obj_builder.unwrap());
@@ -124,7 +203,15 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
 
     // signature.returns.push(AbiParam::new(I64));
     let main_fid = obj_module
-        .declare_function("main", Linkage::Export, &signature)
+        .declare_function(
+            &if file_name == "main" {
+                "main".to_string()
+            } else {
+                format!("_init_{}", file_name)
+            },
+            Linkage::Export,
+            &signature,
+        )
         .unwrap();
 
     let mut main_function = Function::with_name_signature(UserFuncName::user(0, 0), signature);
@@ -178,14 +265,12 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
     //     .load(I64, MemFlags::new(), recv, 0);
 
     // main_function_builder.ins().call(printnum, &[zero]);
-
     let mut scope = HashMap::new();
     let mut functions = Vec::new();
-
     println!("218");
     for declaration in ast {
         match declaration {
-            TypedTopLevelDeclaration::Binding { lhs, rhs } => match rhs {
+            TypedTopLevelDeclaration::Binding { public, lhs, rhs } => match rhs {
                 TypedExpr::Literal(
                     _,
                     TypedLiteral::Function {
@@ -194,7 +279,7 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
                         ret_type,
                     },
                 ) => {
-                    functions.push((lhs, args, body, ret_type));
+                    functions.push((public, lhs, args, body, ret_type));
                 }
                 expr => {
                     let val = compile_global(expr, &mut main_function_builder, &mut obj_module)?;
@@ -208,7 +293,16 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
                     //     .store(MemFlags::new(), *val.value()?, ptr, 0);
                     // main_function_builder.ins().call(printnum, &[ptr]);
                     let global = obj_module
-                        .declare_data(&lhs, Linkage::Local, true, false)
+                        .declare_data(
+                            &lhs,
+                            if public {
+                                Linkage::Export
+                            } else {
+                                Linkage::Local
+                            },
+                            true,
+                            false,
+                        )
                         .map_err(CompileError::ModuleError)?;
                     let mut data = DataDescription::new();
                     data.define_zeroinit(get_size_bytes(val.r#type()) as usize);
@@ -294,7 +388,7 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
     // }
     let mut main_fn = Option::None;
 
-    for (i, (name, args, body, ret)) in functions.iter().enumerate() {
+    for (i, (public, name, args, body, ret)) in functions.iter().enumerate() {
         let mut signature = Signature::new(call_conv);
         for _ in args {
             signature.params.push(AbiParam::new(I64));
@@ -307,7 +401,15 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
             name = "_main".to_string();
         };
         let fid = obj_module
-            .declare_function(&name, Linkage::Local, &signature)
+            .declare_function(
+                &name,
+                if *public {
+                    Linkage::Export
+                } else {
+                    Linkage::Local
+                },
+                &signature,
+            )
             .unwrap();
         scope.insert(
             name.clone(),
@@ -375,11 +477,23 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
 
         ctx.clear();
     }
-    let main = obj_module.declare_func_in_func(
-        main_fn.expect("No \"main\" function defined"),
-        main_function_builder.func,
-    );
-    main_function_builder.ins().call(main, &[]);
+    if file_name == "main" {
+        let main = obj_module.declare_func_in_func(
+            main_fn.expect("No \"main\" function defined"),
+            main_function_builder.func,
+        );
+        for file in modules {
+            let signature = Signature::new(call_conv);
+            if file != "main" {
+                let init = obj_module
+                    .declare_function(&format!("_init_{}", file), Linkage::Import, &signature)
+                    .unwrap();
+                let init = obj_module.declare_func_in_func(init, main_function_builder.func);
+                main_function_builder.ins().call(init, &[]);
+            }
+        }
+        main_function_builder.ins().call(main, &[]);
+    }
     // let ret = main_function_builder.inst_results(ret)[0];
 
     main_function_builder.ins().return_(&[]);
@@ -393,37 +507,32 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
 
     let res = obj_module.finish();
 
-    let out_folder = Path::new("./out");
-    let _ = fs::create_dir(out_folder);
-    let tmp_folder = Path::new("./tmp");
-    let _ = fs::create_dir(tmp_folder);
+    Ok(res.object)
+}
 
-    let mut core_path = tmp_folder.canonicalize().unwrap();
-    core_path.push("core.c");
-
-    fs::write(core_path, include_str!("../../core.c")).unwrap();
-
-    let mut obj_path = tmp_folder.canonicalize().unwrap();
-    obj_path.push("main.o");
-    let out = File::create(obj_path).unwrap();
-
-    res.object.write_stream(out).unwrap();
-    #[cfg(debug_assertions)]
-    dbg!(Path::new("./").canonicalize().unwrap());
+pub fn link(files: Vec<String>, core_path: String) -> Result<PathBuf, CompileError> {
     let mut path = Path::new("./").canonicalize().unwrap();
     path.push(Path::new("out/main"));
+    let mut args: Vec<String> = Vec::new();
+    for file in &files {
+        let name = format!("{}.o", file);
+        args.push(name);
+    }
+    args.push(core_path);
+    args.push("-o".into());
+    args.push(path.to_str().unwrap().into());
     let gcc_out = Command::new("gcc")
         .current_dir(Path::new("./").canonicalize().unwrap())
-        .args(["./tmp/main.o", "./tmp/core.c", "-o", path.to_str().unwrap()])
+        .args(args)
         .output()
         .expect("Failed to link");
     if !gcc_out.status.success() {
-        println!("{}", String::from_utf8_lossy(&gcc_out.stderr));
+        let stderr = gcc_out.stderr.clone();
+        return Err(CompileError::GccError(
+            String::from_utf8_lossy(&stderr).into(),
+        ));
     }
-    #[cfg(debug_assertions)]
-    println!("{}", String::from_utf8_lossy(&gcc_out.stderr));
-    fs::remove_dir_all("./tmp").unwrap();
-    Ok(())
+    Ok(path)
 }
 
 fn compile_block(

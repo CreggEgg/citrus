@@ -11,7 +11,11 @@ pub struct TypedFile {
 
 #[derive(Debug)]
 pub enum TypedTopLevelDeclaration {
-    Binding { lhs: String, rhs: TypedExpr },
+    Binding {
+        lhs: String,
+        rhs: TypedExpr,
+        public: bool,
+    },
     Extern(crate::types::AnnotatedIdent),
 }
 
