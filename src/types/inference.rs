@@ -32,7 +32,7 @@ pub fn type_file(ast: File) -> Result<TypedFile, TypeError> {
                 let (name, r#type) = get_type_declaration(&type_declaration, &types)?;
                 types.insert(name, r#type);
             }
-            TopLevelDeclaration::Binding { lhs, rhs } => {
+            TopLevelDeclaration::Binding { public, lhs, rhs } => {
                 let expr = if let UntypedExpr::Literal(Literal::Function {
                     args,
                     body,
@@ -52,7 +52,11 @@ pub fn type_file(ast: File) -> Result<TypedFile, TypeError> {
                     type_expr(rhs, &types, &scope)?.0
                 };
                 scope.insert(lhs.clone(), get_type(expr.clone()));
-                declarations.push(super::TypedTopLevelDeclaration::Binding { lhs, rhs: expr })
+                declarations.push(super::TypedTopLevelDeclaration::Binding {
+                    public,
+                    lhs,
+                    rhs: expr,
+                })
             }
             TopLevelDeclaration::Extern(annotated_ident) => {
                 let ty = type_from_name(annotated_ident.type_name, &types)?;

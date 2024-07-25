@@ -6,98 +6,66 @@ use std::{
 
 use clap::{command, Parser};
 
+use crate::compiler::link;
+
 mod ast;
 mod compiler;
 mod types;
 
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-    /// What to do
-    mode: String,
-
-    /// File to operate on
-    file: String,
-}
-
 fn main() {
     let args = Args::parse();
-    let file = &fs::read_to_string(args.file).unwrap();
+    let file = args.file.clone().map(|file| fs::read_to_string(file));
     match args.mode.as_str() {
         "build" => {
-            let ast = ast::parser::parse(file).unwrap();
-            let typed = types::inference::type_file(ast::File { declarations: ast }).unwrap();
-            compiler::compile(typed.declarations).unwrap();
+            // let ast = ast::parser::parse(file).unwrap();
+            // let typed = types::inference::type_file(ast::File { declarations: ast }).unwrap();
+            // compiler::compile("main".into(), typed.declarations).unwrap();
+            let out = compiler::build_dir();
         }
         "run" => {
-            let out_folder = Path::new("./out");
-            let _ = fs::create_dir(out_folder);
-            let tmp_folder = Path::new("./tmp");
-            let _ = fs::create_dir(tmp_folder);
-
-            let mut core_path = tmp_folder.canonicalize().unwrap();
-            core_path.push("core.c");
-            fs::write(core_path, include_str!("../core.c")).unwrap();
-
-            let citrus_files = fs::read_dir("./")
-                .unwrap()
-                .into_iter()
-                .filter_map(|file| {
-                    if let Ok(file) = file {
-                        if file.path().is_file()
-                            && file
-                                .path()
-                                .extension()
-                                .map(|ex| ex == "ct")
-                                .unwrap_or(false)
-                        {
-                            // && file.path().ends_with(".ct") {
-                            Some(file.path())
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                })
-                // .map(|file| file.unwrap().path())
-                .collect::<Vec<_>>();
-
-            for file in citrus_files {
-                println!("{}.o", file.to_str().unwrap());
-                let mut obj_path = tmp_folder.canonicalize().unwrap();
-                obj_path.push(format!("{}.o", file.to_str().unwrap()));
-                let out = File::create(obj_path).unwrap();
-                let ast = ast::parser::parse(&fs::read_to_string(file).unwrap()).unwrap();
-                let typed = types::inference::type_file(ast::File { declarations: ast }).unwrap();
-                compiler::compile(
-                    file.file_stem().unwrap().to_str().unwrap().to_string(),
-                    typed.declarations,
-                )
-                .unwrap()
-                .write_stream(out)
-                .unwrap();
-            }
-
-            #[cfg(debug_assertions)]
-            dbg!(Path::new("./").canonicalize().unwrap());
-            // fs::remove_dir_all("./tmp").unwrap();
-
-            let mut path = Path::new("./").canonicalize().unwrap();
-            path.push(Path::new("out/main"));
-            // let out = std::process::Command::new(path).output().unwrap();
-            // println!("{}", String::from_utf8_lossy(&out.stdout));
+            let out = compiler::build_dir();
+            let out = std::process::Command::new(out).output().unwrap();
+            println!("{}", String::from_utf8_lossy(&out.stdout));
         }
         "parse" => {
-            let ast = ast::parser::parse(file).unwrap();
+            let ast = ast::parser::parse(
+                &file
+                    .expect("you must select a file to parse")
+                    .expect("file does not exist"),
+            )
+            .unwrap();
             dbg!(ast);
         }
         "type" => {
-            let ast = ast::parser::parse(file).unwrap();
+            let ast = ast::parser::parse(
+                &file
+                    .expect("you must select a file to type")
+                    .expect("file does not exist"),
+            )
+            .unwrap();
             dbg!(types::inference::type_file(ast::File { declarations: ast }).unwrap());
+        }
+        "init" => {
+            let mut root_path = Path::new("./").canonicalize().unwrap();
+            if let Some(path) = args.file {
+                root_path.push(path);
+                let _ = fs::create_dir(&root_path);
+            };
+            root_path.push("main.ct");
+            dbg!(&root_path);
+            let main = File::create(root_path.clone()).unwrap();
+            fs::write(root_path, include_str!("../hello.ct")).unwrap();
         }
         mode => {
             eprintln!("Invalid mode: {}", mode);
         }
     }
+}
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// What to do
+    mode: String,
+    /// File to operate on
+    file: Option<String>,
 }
