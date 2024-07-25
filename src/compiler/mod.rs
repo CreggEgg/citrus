@@ -729,6 +729,14 @@ fn compile_global(
                 r#type,
                 heap: false, // storage_location: StorageLocation::Heap,
             }),
+            TypedLiteral::Float(x) => Ok(CitrusValue::Value {
+                cranelift_value: {
+                    let floating = builder.ins().f64const(x);
+                    builder.ins().bitcast(I64, MemFlags::new(), floating)
+                },
+                r#type,
+                heap: false, // storage_location: StorageLocation::Heap,
+            }),
         },
         TypedExpr::Ident(_, _) => todo!(),
         TypedExpr::UnaryOp { .. } => todo!(),
@@ -906,8 +914,6 @@ fn compile_expr(
                         64 * (pairs.len() as u32 + 1),
                     ));
                     let addr = builder.ins().stack_addr(I64, stack_slot, 0);
-                    let len = builder.ins().iconst(I64, pairs.len() as i64);
-                    builder.ins().store(MemFlags::new(), len, addr, 0);
 
                     for (i, (_, val)) in pairs.iter().enumerate() {
                         let val = compile_expr(
@@ -921,7 +927,7 @@ fn compile_expr(
                         .value(builder, obj_module)?;
                         builder
                             .ins()
-                            .store(MemFlags::new(), val, addr, (i + 1) as i32 * 64);
+                            .store(MemFlags::new(), val, addr, (i) as i32 * 64);
                     }
                     CitrusValue::Value {
                         cranelift_value: addr,
@@ -933,6 +939,14 @@ fn compile_expr(
                     cranelift_value: builder.ins().iconst(I64, 0),
                     r#type,
                     heap: false, // storage_location: StorageLocation::Stack,
+                },
+                TypedLiteral::Float(x) => CitrusValue::Value {
+                    cranelift_value: {
+                        let floating = builder.ins().f64const(x);
+                        builder.ins().bitcast(I64, MemFlags::new(), floating)
+                    },
+                    r#type,
+                    heap: false,
                 },
             },
             scope,

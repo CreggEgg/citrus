@@ -75,6 +75,7 @@ pub enum TypedLiteral {
     Array(Vec<TypedExpr>),
     Struct(Type, Vec<(String, TypedExpr)>),
     Unit,
+    Float(f64),
 }
 
 #[derive(Debug, PartialEq, Clone)]
