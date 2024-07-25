@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs::{self, File},
-    path::Path,
+    path::{Path, PathBuf},
     process::Command,
 };
 
@@ -15,7 +15,7 @@ use cranelift::{
     prelude::*,
 };
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
-use cranelift_object::{ObjectBuilder, ObjectModule};
+use cranelift_object::{object::write::Object, ObjectBuilder, ObjectModule};
 use target_lexicon::Triple;
 
 use crate::{
@@ -31,6 +31,7 @@ pub enum CompileError {
     UndefinedValue(String),
     CallOnNonFunction(Type),
     InvalidHeapValue(CitrusValue),
+    GccError(String),
 }
 
 #[derive(Clone, Debug)]
@@ -95,7 +96,10 @@ impl CitrusValue {
     }
 }
 
-pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
+pub fn compile(
+    file_name: String,
+    ast: Vec<TypedTopLevelDeclaration>,
+) -> Result<Object<'static>, CompileError> {
     println!("129");
     let mut settings_builder = settings::builder();
     settings_builder.enable("is_pic").unwrap();
@@ -107,7 +111,7 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
 
     let obj_builder = ObjectBuilder::new(
         isa.clone(),
-        "main",
+        file_name, //"main",
         cranelift_module::default_libcall_names(),
     );
     let mut obj_module = ObjectModule::new(obj_builder.unwrap());
@@ -178,10 +182,8 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
     //     .load(I64, MemFlags::new(), recv, 0);
 
     // main_function_builder.ins().call(printnum, &[zero]);
-
     let mut scope = HashMap::new();
     let mut functions = Vec::new();
-
     println!("218");
     for declaration in ast {
         match declaration {
@@ -393,37 +395,31 @@ pub fn compile(ast: Vec<TypedTopLevelDeclaration>) -> Result<(), CompileError> {
 
     let res = obj_module.finish();
 
-    let out_folder = Path::new("./out");
-    let _ = fs::create_dir(out_folder);
-    let tmp_folder = Path::new("./tmp");
-    let _ = fs::create_dir(tmp_folder);
+    Ok(res.object)
+}
 
-    let mut core_path = tmp_folder.canonicalize().unwrap();
-    core_path.push("core.c");
-
-    fs::write(core_path, include_str!("../../core.c")).unwrap();
-
-    let mut obj_path = tmp_folder.canonicalize().unwrap();
-    obj_path.push("main.o");
-    let out = File::create(obj_path).unwrap();
-
-    res.object.write_stream(out).unwrap();
-    #[cfg(debug_assertions)]
-    dbg!(Path::new("./").canonicalize().unwrap());
+pub fn link(files: Vec<String>, core_path: String) -> Result<PathBuf, CompileError> {
     let mut path = Path::new("./").canonicalize().unwrap();
     path.push(Path::new("out/main"));
+    let mut args: Vec<&str> = Vec::new();
+    for file in &files {
+        args.push(&file);
+    }
+    args.push(&core_path);
+    args.push("-o");
+    args.push(path.to_str().unwrap());
     let gcc_out = Command::new("gcc")
         .current_dir(Path::new("./").canonicalize().unwrap())
-        .args(["./tmp/main.o", "./tmp/core.c", "-o", path.to_str().unwrap()])
+        .args(args)
         .output()
         .expect("Failed to link");
     if !gcc_out.status.success() {
-        println!("{}", String::from_utf8_lossy(&gcc_out.stderr));
+        let stderr = gcc_out.stderr.clone();
+        return Err(CompileError::GccError(
+            String::from_utf8_lossy(&stderr).into(),
+        ));
     }
-    #[cfg(debug_assertions)]
-    println!("{}", String::from_utf8_lossy(&gcc_out.stderr));
-    fs::remove_dir_all("./tmp").unwrap();
-    Ok(())
+    Ok(path)
 }
 
 fn compile_block(
