@@ -2,8 +2,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
 
-extern int64_t printnum(int64_t *);
+extern void printfloat(double);
 extern void printint(int64_t);
 extern void printstr(int64_t *);
 extern int64_t getindex(int64_t *, int64_t);
@@ -38,6 +39,11 @@ int64_t copy(int64_t *a, int64_t *b, int64_t c) {
     printf("size: %d\n", c);
     return (int64_t)memcpy(a, b, c);
 }
+void printfloat(double x) {
+    printf("%x\n", x);
+    printf("%b\n", x);
+    printf("%lf\n", &x);
+};
 //
 // 	printnum(pointer);
 //

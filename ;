@@ -22,7 +22,7 @@ pub enum TypeError {
 pub fn type_file(ast: File) -> Result<TypedFile, TypeError> {
     let mut types: HashMap<String, Type> = HashMap::new();
     types.insert("int".into(), Type::Int);
-    types.insert("float".into(), Type::Float);
+    types.insert("int".into(), Type::Int);
     types.insert("bool".into(), Type::Bool);
     types.insert("unit".into(), Type::Unit);
     let mut scope: HashMap<String, Type> = HashMap::new();

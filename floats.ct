@@ -1,0 +1,5 @@
+alias string = [int];
+extern printfloat: fn(int): unit;
+let main = fn() {
+    printfloat(5);
+}

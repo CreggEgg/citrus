@@ -87,6 +87,7 @@ pub struct AnnotatedIdent {
 #[derive(Debug, Clone)]
 pub enum Literal {
     Int(i32),
+    Float(f64),
     String(String),
     Struct(Vec<(String, UntypedExpr)>),
     Function {
