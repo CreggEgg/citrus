@@ -613,7 +613,18 @@ fn move_to_heap(
 
                     (true, heap_ptr)
                 }
-                Type::Struct(_) => todo!(),
+                Type::Struct(ref pairs) => {
+                    let len = builder.ins().iconst(I64, (pairs.len() - 1) as i64);
+                    let eight = builder.ins().iconst(I64, 8);
+                    let len_bytes = builder.ins().imul(len, eight);
+                    let size = builder.ins().iadd(len_bytes, eight);
+                    let ptr_ins = builder.ins().call(malloc, &[size]);
+                    let heap_ptr = builder.inst_results(ptr_ins)[0];
+
+                    builder.ins().call(copy, &[heap_ptr, cranelift_value, size]);
+
+                    (true, heap_ptr)
+                }
 
                 Type::Unit => todo!(),
                 Type::Float => todo!(),
@@ -928,11 +939,13 @@ fn compile_expr(
                             base_pairs.sort_by(|a, b| a.0.cmp(b.0));
                             for (i, (key, value_type)) in base_pairs.iter().enumerate() {
                                 let value_index = builder.ins().iconst(I64, i as i64);
+                                let eight = builder.ins().iconst(I64, 8);
 
-                                let value_addr = builder.ins().imul_imm(value_index, 8);
+                                let value_offset = builder.ins().imul(value_index, eight);
+                                let value_addr = builder.ins().iadd(value_offset, cranelift_value);
                                 let value = builder.ins().load(I64, MemFlags::new(), value_addr, 0);
                                 pairs.push((
-                                    key.clone().to_string(),
+                                    key.to_string(),
                                     CitrusValue::Value {
                                         cranelift_value: value,
                                         r#type: value_type.clone().clone(),
@@ -974,7 +987,7 @@ fn compile_expr(
                     pairs.sort_by(|a, b| a.0.cmp(&b.0));
                     let stack_slot = builder.create_sized_stack_slot(StackSlotData::new(
                         StackSlotKind::ExplicitSlot,
-                        64 * (pairs.len() as u32 + 1),
+                        64 * (pairs.len() as u32),
                     ));
                     let addr = builder.ins().stack_addr(I64, stack_slot, 0);
 
