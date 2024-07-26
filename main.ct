@@ -1,0 +1,19 @@
+extern printint: fn(int): unit;
+extern printstr: fn([int]): unit;
+
+type struct = {
+    count: int
+};
+
+let thing = fn(n: int): struct {
+    {count: n}
+};
+let main = fn() {
+    let a = thing(5);
+    printint(a::count);
+    printint(1);
+    let b = {a with count:3, number: 10};
+    printint(2);
+    printint(b::count);
+    printint(b::number);
+}

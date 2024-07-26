@@ -73,7 +73,7 @@ pub enum TypedLiteral {
     },
     Bool(bool),
     Array(Vec<TypedExpr>),
-    Struct(Type, Vec<(String, TypedExpr)>),
+    Struct(Type, Vec<(String, TypedExpr)>, Option<Box<TypedExpr>>),
     Unit,
     Float(f64),
 }
